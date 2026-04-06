@@ -1,8 +1,10 @@
-import { useEffect, useRef } from "react";
+import { useEffect } from "react";
 import type { GameServerMessages } from "@vibejam/shared";
 import { useRoom } from "../../colyseus/roomContext";
 
-function playDoorTone(action: GameServerMessages["interactable_event"]["action"]) {
+type DoorEvent = Extract<GameServerMessages["interactable_event"], { kind: "door" }>;
+
+function playDoorTone(action: DoorEvent["action"]) {
 	const AudioContextCtor = window.AudioContext ?? (window as typeof window & { webkitAudioContext?: typeof AudioContext }).webkitAudioContext;
 	if (!AudioContextCtor) {
 		return;
@@ -26,14 +28,12 @@ function playDoorTone(action: GameServerMessages["interactable_event"]["action"]
 
 export function useDoorAudio() {
 	const { room } = useRoom();
-	const initializedRef = useRef(false);
 
 	useEffect(() => {
-		if (!room || initializedRef.current) {
+		if (!room) {
 			return;
 		}
-		initializedRef.current = true;
-		room.onMessage<GameServerMessages["interactable_event"]>("interactable_event", (message) => {
+		return room.onMessage<GameServerMessages["interactable_event"]>("interactable_event", (message) => {
 			if (message.kind !== "door") {
 				return;
 			}

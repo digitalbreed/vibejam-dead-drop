@@ -1,12 +1,8 @@
-import type { DoorState, Player } from "@vibejam/shared";
+import type { GameServerMessages, InteractableState, Player } from "@vibejam/shared";
 
-export type InteractableEvent = {
-	id: string;
-	kind: "door";
-	action: "opened" | "closed";
-};
+export type InteractableEvent = GameServerMessages["interactable_event"];
 
-export abstract class BaseInteractableController<TState extends DoorState> {
+export abstract class BaseInteractableController<TState extends InteractableState> {
 	constructor(protected readonly state: TState) {}
 
 	abstract tick(players: Iterable<Player>, deltaMs: number): InteractableEvent[];

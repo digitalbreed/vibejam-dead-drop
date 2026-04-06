@@ -1,31 +1,50 @@
 import { useMemo, useRef, useEffect, useLayoutEffect, useState } from "react";
 import { Canvas, useFrame, useThree } from "@react-three/fiber";
-import { Color, Group, Vector2, Vector3 } from "three";
+import { Color, DoubleSide, Group, Vector2, Vector3 } from "three";
 import {
 	buildClosedDoorWalls,
 	buildCollisionWalls,
+	buildVaultCollisionWalls,
 	CELL_SIZE,
+	generateVaultPlacement,
 	generateMapLayout,
 	layoutRoomMap,
 	moveWithCollision,
 	type DoorState,
 	type GameClientMessages,
+	type KeycardState,
+	type SuitcaseState,
 } from "@vibejam/shared";
 import { useRoom, useRoomState } from "../colyseus/roomContext";
 import { schemaMapValues } from "../colyseus/schemaMap";
 import { DoorLayer } from "./doors/DoorLayer";
+import { KeycardLayer } from "./keycards/KeycardLayer";
 import { LightingLayer } from "./LightingLayer";
 import { MapLevel } from "./MapLevel";
+import { SuitcaseLayer } from "./suitcases/SuitcaseLayer";
+import { VaultLayer } from "./vaults/VaultLayer";
 
 const MOVE_SPEED = 12;
 const CAMERA_OFFSET = { x: 0, y: 8.5, z: 14 };
 const COMPASS_LABELS = ["East", "Northeast", "North", "Northwest", "West", "Southwest", "South", "Southeast"] as const;
+const ORBIT_MIN_RADIUS = 4;
+const ORBIT_MAX_RADIUS = 60;
+const ORBIT_MIN_POLAR = 0.2;
+const ORBIT_MAX_POLAR = Math.PI - 0.2;
 
 type AreaInfo = {
 	labelByCell: Map<string, string>;
 };
 export type FogState = "hidden" | "explored" | "visible";
 export type PassthroughKind = "none" | "frontWall";
+type KeycardColor = "blue" | "red";
+const SHORT_PRESS_MAX_MS = 220;
+const HOLD_START_DELAY_MS = 180;
+
+const KEYCARD_COLOR_BY_KIND: Record<KeycardColor, string> = {
+	blue: "#1fb5ff",
+	red: "#ff2c44",
+};
 
 function buildFogByCell(areaInfo: AreaInfo, currentArea: string, visitedAreas: ReadonlySet<string>, revealAll: boolean): Map<string, FogState> {
 	const result = new Map<string, FogState>();
@@ -55,6 +74,10 @@ function directionLabel(ix: number, iz: number): string {
 	const octant = Math.round(angle / (Math.PI / 4));
 	const normalized = ((octant % 8) + 8) % 8;
 	return COMPASS_LABELS[normalized]!;
+}
+
+function clamp(value: number, min: number, max: number): number {
+	return Math.min(max, Math.max(min, value));
 }
 
 function buildAreaInfo(layout: ReturnType<typeof generateMapLayout>): AreaInfo {
@@ -191,12 +214,20 @@ function PlayerVisual({
 	positionRef,
 	target,
 	smoothing,
+	carriedKeycardColor,
+	carriedSuitcase,
+	isInteracting,
+	interactionProgress,
 }: {
 	color: number;
 	isLocal: boolean;
 	positionRef?: React.MutableRefObject<Vector3>;
 	target?: { x: number; z: number };
 	smoothing: number;
+	carriedKeycardColor?: KeycardColor | null;
+	carriedSuitcase?: boolean;
+	isInteracting?: boolean;
+	interactionProgress?: number;
 }) {
 	const groupRef = useRef<Group>(null);
 	const visualRef = useRef<Group>(null);
@@ -265,6 +296,18 @@ function PlayerVisual({
 			const wobbleRoll = Math.sin(wobblePhaseRef.current) * 0.22 * wobbleStrength;
 			visual.rotation.x = 0;
 			visual.rotation.z += (wobbleRoll - visual.rotation.z) * (1 - Math.exp(-dt * 14));
+			if (isInteracting) {
+				const t = performance.now() / 1000;
+				const jiggleX = Math.sin(t * 21 + wobblePhaseRef.current * 0.7) * 0.045;
+				const jiggleY = Math.cos(t * 17 + wobblePhaseRef.current * 0.5) * 0.05;
+				const jiggleZ = Math.sin(t * 19 + wobblePhaseRef.current * 0.9) * 0.045;
+				visual.position.set(jiggleX, jiggleY, jiggleZ);
+				const squash = 1 + Math.sin(t * 12) * 0.12;
+				visual.scale.set(1.05, 1 / squash, 1.05);
+			} else {
+				visual.position.set(0, 0, 0);
+				visual.scale.set(1, 1, 1);
+			}
 		}
 
 		if (blinkDurationRef.current > 0) {
@@ -316,14 +359,80 @@ function PlayerVisual({
 						</mesh>
 					</group>
 				</group>
+				{carriedKeycardColor ? (
+					<group position={[0.52, 0.51, 0.08]} rotation={[0, Math.PI / 2, 0]}>
+						<mesh castShadow={isLocal} receiveShadow>
+							<boxGeometry args={[0.62, 0.06, 0.38]} />
+							<meshStandardMaterial
+								color={new Color(KEYCARD_COLOR_BY_KIND[carriedKeycardColor])}
+								emissive={new Color(KEYCARD_COLOR_BY_KIND[carriedKeycardColor])}
+								emissiveIntensity={0.45}
+								roughness={0.38}
+								metalness={0.24}
+							/>
+						</mesh>
+						<mesh position={[0, 0.036, 0]} castShadow={isLocal} receiveShadow>
+							<boxGeometry args={[0.22, 0.016, 0.26]} />
+							<meshStandardMaterial color="#f4f6fa" roughness={0.85} metalness={0.03} />
+						</mesh>
+					</group>
+				) : null}
+				{carriedSuitcase ? (
+					<group position={[-0.44, 0.44, -0.02]}>
+						<group rotation={[0, Math.PI / 2 - 0.28, 0]}>
+							<group rotation={[0, 0, -0.1]}>
+								<mesh castShadow={isLocal} receiveShadow>
+									<boxGeometry args={[0.75, 0.5, 0.15]} />
+									<meshStandardMaterial color="#a9b5c2" emissive="#4a5562" emissiveIntensity={0.18} roughness={0.3} metalness={0.56} />
+								</mesh>
+								<mesh position={[0, 0.24, 0]} castShadow={isLocal} receiveShadow>
+									<torusGeometry args={[0.12, 0.02, 10, 18]} />
+									<meshStandardMaterial color="#c3ccd6" roughness={0.28} metalness={0.62} />
+								</mesh>
+							</group>
+						</group>
+					</group>
+				) : null}
 			</group>
+			{isInteracting ? (
+				<group position={[0, 2.45, 0]}>
+					<mesh position={[0, 0, 0]} renderOrder={1}>
+						<circleGeometry args={[0.38, 40]} />
+						<meshStandardMaterial color="#1f2832" roughness={0.55} metalness={0.2} side={DoubleSide} depthWrite={false} />
+					</mesh>
+					<mesh position={[0, 0.035, 0]} rotation={[0, 0, 0]} renderOrder={2}>
+						<circleGeometry
+							args={[
+								0.32,
+								40,
+								Math.PI / 2,
+								-Math.PI * 2 * Math.max(0, Math.min(1, interactionProgress ?? 0)),
+							]}
+						/>
+						<meshStandardMaterial
+							color="#7cd6ff"
+							emissive="#2db9ff"
+							emissiveIntensity={0.9}
+							roughness={0.32}
+							metalness={0.18}
+							side={DoubleSide}
+							depthWrite={false}
+							polygonOffset
+							polygonOffsetFactor={-1}
+						/>
+					</mesh>
+				</group>
+			) : null}
 		</group>
 	);
 }
 
-function ThirdPersonCamera({ targetRef }: { targetRef: React.MutableRefObject<Vector3> }) {
+function ThirdPersonCamera({ targetRef, enabled }: { targetRef: React.MutableRefObject<Vector3>; enabled: boolean }) {
 	const { camera } = useThree();
 	useFrame(() => {
+		if (!enabled) {
+			return;
+		}
 		const target = targetRef.current;
 		camera.position.set(target.x + CAMERA_OFFSET.x, target.y + CAMERA_OFFSET.y, target.z + CAMERA_OFFSET.z);
 		camera.lookAt(target);
@@ -331,17 +440,157 @@ function ThirdPersonCamera({ targetRef }: { targetRef: React.MutableRefObject<Ve
 	return null;
 }
 
-function MovementInput({ inputRef }: { inputRef: React.MutableRefObject<Vector2> }) {
+function DebugOrbitCamera({ targetRef, enabled }: { targetRef: React.MutableRefObject<Vector3>; enabled: boolean }) {
+	const { camera, gl } = useThree();
+	const orbitRef = useRef({
+		radius: 16,
+		theta: 0,
+		phi: 1.1,
+		dragging: false,
+		lastX: 0,
+		lastY: 0,
+		initialized: false,
+	});
+
+	useEffect(() => {
+		orbitRef.current.dragging = false;
+		if (!enabled) {
+			return;
+		}
+		orbitRef.current.initialized = false;
+		const element = gl.domElement;
+
+		const onPointerDown = (e: PointerEvent) => {
+			if (e.button !== 0) {
+				return;
+			}
+			orbitRef.current.dragging = true;
+			orbitRef.current.lastX = e.clientX;
+			orbitRef.current.lastY = e.clientY;
+			element.setPointerCapture(e.pointerId);
+		};
+		const onPointerMove = (e: PointerEvent) => {
+			if (!orbitRef.current.dragging) {
+				return;
+			}
+			const dx = e.clientX - orbitRef.current.lastX;
+			const dy = e.clientY - orbitRef.current.lastY;
+			orbitRef.current.lastX = e.clientX;
+			orbitRef.current.lastY = e.clientY;
+			orbitRef.current.theta -= dx * 0.007;
+			orbitRef.current.phi = clamp(orbitRef.current.phi + dy * 0.007, ORBIT_MIN_POLAR, ORBIT_MAX_POLAR);
+		};
+		const onPointerUp = (e: PointerEvent) => {
+			orbitRef.current.dragging = false;
+			if (element.hasPointerCapture(e.pointerId)) {
+				element.releasePointerCapture(e.pointerId);
+			}
+		};
+		const onWheel = (e: WheelEvent) => {
+			e.preventDefault();
+			const zoomScale = Math.exp(e.deltaY * 0.0015);
+			orbitRef.current.radius = clamp(orbitRef.current.radius * zoomScale, ORBIT_MIN_RADIUS, ORBIT_MAX_RADIUS);
+		};
+
+		element.addEventListener("pointerdown", onPointerDown);
+		element.addEventListener("pointermove", onPointerMove);
+		element.addEventListener("pointerup", onPointerUp);
+		element.addEventListener("pointercancel", onPointerUp);
+		element.addEventListener("pointerleave", onPointerUp);
+		element.addEventListener("wheel", onWheel, { passive: false });
+		return () => {
+			element.removeEventListener("pointerdown", onPointerDown);
+			element.removeEventListener("pointermove", onPointerMove);
+			element.removeEventListener("pointerup", onPointerUp);
+			element.removeEventListener("pointercancel", onPointerUp);
+			element.removeEventListener("pointerleave", onPointerUp);
+			element.removeEventListener("wheel", onWheel);
+		};
+	}, [enabled, gl]);
+
+	useFrame(() => {
+		if (!enabled) {
+			return;
+		}
+		const target = targetRef.current;
+		if (!orbitRef.current.initialized) {
+			const offsetX = camera.position.x - target.x;
+			const offsetY = camera.position.y - target.y;
+			const offsetZ = camera.position.z - target.z;
+			const distance = Math.hypot(offsetX, offsetY, offsetZ);
+			if (distance > 0.001) {
+				orbitRef.current.radius = clamp(distance, ORBIT_MIN_RADIUS, ORBIT_MAX_RADIUS);
+				orbitRef.current.theta = Math.atan2(offsetX, offsetZ);
+				orbitRef.current.phi = clamp(Math.acos(clamp(offsetY / distance, -1, 1)), ORBIT_MIN_POLAR, ORBIT_MAX_POLAR);
+			}
+			orbitRef.current.initialized = true;
+		}
+
+		const sinPhi = Math.sin(orbitRef.current.phi);
+		camera.position.set(
+			target.x + orbitRef.current.radius * sinPhi * Math.sin(orbitRef.current.theta),
+			target.y + orbitRef.current.radius * Math.cos(orbitRef.current.phi),
+			target.z + orbitRef.current.radius * sinPhi * Math.cos(orbitRef.current.theta),
+		);
+		camera.lookAt(target);
+	});
+
+	return null;
+}
+
+function MovementInput({ inputRef, enabled }: { inputRef: React.MutableRefObject<Vector2>; enabled: boolean }) {
 	const { room } = useRoom();
 	const keys = useRef({ KeyW: false, KeyA: false, KeyS: false, KeyD: false });
+	const holdRef = useRef<{
+		pressed: boolean;
+		holdSent: boolean;
+		startMs: number;
+		timerId: number | null;
+	}>({ pressed: false, holdSent: false, startMs: 0, timerId: null });
 
 	useEffect(() => {
 		const onDown = (e: KeyboardEvent) => {
+			if (!enabled) {
+				return;
+			}
+			if (e.code === "KeyE" && !e.repeat && room) {
+				holdRef.current.pressed = true;
+				holdRef.current.holdSent = false;
+				holdRef.current.startMs = performance.now();
+				if (holdRef.current.timerId !== null) {
+					window.clearTimeout(holdRef.current.timerId);
+				}
+				holdRef.current.timerId = window.setTimeout(() => {
+					if (!holdRef.current.pressed || holdRef.current.holdSent) {
+						return;
+					}
+					holdRef.current.holdSent = true;
+					const holdPayload: GameClientMessages["interact_hold"] = { active: true };
+					room.send("interact_hold", holdPayload);
+				}, HOLD_START_DELAY_MS);
+			}
 			if (e.code in keys.current) {
 				keys.current[e.code as keyof typeof keys.current] = true;
 			}
 		};
 		const onUp = (e: KeyboardEvent) => {
+			if (e.code === "KeyE" && room) {
+				const heldMs = performance.now() - holdRef.current.startMs;
+				holdRef.current.pressed = false;
+				if (holdRef.current.timerId !== null) {
+					window.clearTimeout(holdRef.current.timerId);
+					holdRef.current.timerId = null;
+				}
+				if (holdRef.current.holdSent) {
+					const holdPayload: GameClientMessages["interact_hold"] = { active: false };
+					room.send("interact_hold", holdPayload);
+				}
+				if (!holdRef.current.holdSent && heldMs <= SHORT_PRESS_MAX_MS) {
+					const interactPayload: GameClientMessages["interact"] = {};
+					room.send("interact", interactPayload);
+				}
+				holdRef.current.holdSent = false;
+			}
 			if (e.code in keys.current) {
 				keys.current[e.code as keyof typeof keys.current] = false;
 			}
@@ -352,10 +601,30 @@ function MovementInput({ inputRef }: { inputRef: React.MutableRefObject<Vector2>
 			window.removeEventListener("keydown", onDown);
 			window.removeEventListener("keyup", onUp);
 		};
-	}, []);
+	}, [enabled, room]);
 
 	useFrame(() => {
 		if (!room) {
+			return;
+		}
+		if (!enabled) {
+			keys.current.KeyW = false;
+			keys.current.KeyA = false;
+			keys.current.KeyS = false;
+			keys.current.KeyD = false;
+			inputRef.current.set(0, 0);
+			if (holdRef.current.timerId !== null) {
+				window.clearTimeout(holdRef.current.timerId);
+				holdRef.current.timerId = null;
+			}
+			if (holdRef.current.holdSent) {
+				holdRef.current.pressed = false;
+				holdRef.current.holdSent = false;
+				const holdPayload: GameClientMessages["interact_hold"] = { active: false };
+				room.send("interact_hold", holdPayload);
+			}
+			const payload: GameClientMessages["input"] = { x: 0, z: 0 };
+			room.send("input", payload);
 			return;
 		}
 		const k = keys.current;
@@ -384,10 +653,21 @@ function MovementInput({ inputRef }: { inputRef: React.MutableRefObject<Vector2>
 	return null;
 }
 
-function SceneContent({ onAreaChange, revealAll }: { onAreaChange?: (label: string) => void; revealAll: boolean }) {
+function SceneContent({
+	onAreaChange,
+	revealAll,
+	debugCameraEnabled,
+}: {
+	onAreaChange?: (label: string) => void;
+	revealAll: boolean;
+	debugCameraEnabled: boolean;
+}) {
 	const { room } = useRoom();
 	const players = useRoomState((s) => s.players);
 	const interactables = useRoomState((s) => s.interactables);
+	const keycards = useRoomState((s) => s.keycards);
+	const suitcases = useRoomState((s) => s.suitcases);
+	const vaults = useRoomState((s) => s.vaults);
 	const mapSeed = useRoomState((s) => s.mapSeed);
 	const mapMaxDistance = useRoomState((s) => s.mapMaxDistance);
 	const inputRef = useRef(new Vector2(0, 0));
@@ -396,12 +676,56 @@ function SceneContent({ onAreaChange, revealAll }: { onAreaChange?: (label: stri
 	const [currentArea, setCurrentArea] = useState("Start Room");
 	const [visitedAreas, setVisitedAreas] = useState<Set<string>>(() => new Set(["Start Room"]));
 
+	useEffect(() => {
+		if (!room) {
+			return;
+		}
+		return room.onMessage("interaction_feedback", (message: { kind: "error_beep" }) => {
+			if (message.kind !== "error_beep") {
+				return;
+			}
+			const AudioContextCtor = window.AudioContext ?? (window as typeof window & { webkitAudioContext?: typeof AudioContext }).webkitAudioContext;
+			if (!AudioContextCtor) {
+				return;
+			}
+			const context = new AudioContextCtor();
+			const oscillator = context.createOscillator();
+			const gain = context.createGain();
+			oscillator.type = "square";
+			oscillator.frequency.value = 210;
+			gain.gain.setValueAtTime(0.0001, context.currentTime);
+			gain.gain.exponentialRampToValueAtTime(0.06, context.currentTime + 0.01);
+			gain.gain.exponentialRampToValueAtTime(0.0001, context.currentTime + 0.17);
+			oscillator.connect(gain);
+			gain.connect(context.destination);
+			oscillator.start();
+			oscillator.stop(context.currentTime + 0.19);
+			window.setTimeout(() => {
+				void context.close();
+			}, 280);
+		});
+	}, [room]);
+
 	const layout = useMemo(() => {
 		return generateMapLayout(mapSeed ?? 0, mapMaxDistance ?? 12);
 	}, [mapSeed, mapMaxDistance]);
 	const staticWalls = useMemo(() => buildCollisionWalls(layout), [layout]);
 	const dynamicWalls = useMemo(() => {
 		const doors = schemaMapValues<DoorState>(interactables);
+		const syncedVaults = schemaMapValues<{ x: number; z: number }>(vaults);
+		const vaultCollisionSources =
+			syncedVaults.length > 0
+				? syncedVaults
+				: (() => {
+						const fallback = generateVaultPlacement();
+						return [{ x: fallback.x, z: fallback.z }];
+					})();
+		const vaultWalls = buildVaultCollisionWalls(
+			vaultCollisionSources.map((vault) => ({
+				x: vault.x,
+				z: vault.z,
+			})),
+		);
 		return buildClosedDoorWalls(
 			doors.map((door) => ({
 				x: door.x,
@@ -409,8 +733,8 @@ function SceneContent({ onAreaChange, revealAll }: { onAreaChange?: (label: stri
 				facing: door.facing === "z" ? "z" : "x",
 				isOpen: door.isOpen,
 			})),
-		);
-	}, [interactables]);
+		).concat(vaultWalls);
+	}, [interactables, vaults]);
 	const walls = useMemo(() => [...staticWalls, ...dynamicWalls], [dynamicWalls, staticWalls]);
 	const areaInfo = useMemo(() => buildAreaInfo(layout), [layout]);
 	const fogByCell = useMemo(() => buildFogByCell(areaInfo, currentArea, visitedAreas, revealAll), [areaInfo, currentArea, revealAll, visitedAreas]);
@@ -480,6 +804,20 @@ function SceneContent({ onAreaChange, revealAll }: { onAreaChange?: (label: stri
 		if (!players) {
 			return [];
 		}
+		const carriedColorBySessionId = new Map<string, KeycardColor>();
+		for (const card of schemaMapValues<KeycardState>(keycards)) {
+			if (card.state !== "carried" || !card.carrierSessionId) {
+				continue;
+			}
+			carriedColorBySessionId.set(card.carrierSessionId, card.color === "red" ? "red" : "blue");
+		}
+		const carriedSuitcaseBySessionId = new Set<string>();
+		for (const suitcase of schemaMapValues<SuitcaseState>(suitcases)) {
+			if (suitcase.state !== "carried" || !suitcase.carrierSessionId) {
+				continue;
+			}
+			carriedSuitcaseBySessionId.add(suitcase.carrierSessionId);
+		}
 		return Object.entries(players).map(([id, p]) => ({
 			id,
 			x: p.x,
@@ -487,13 +825,21 @@ function SceneContent({ onAreaChange, revealAll }: { onAreaChange?: (label: stri
 			color: p.color,
 			isLocal: id === room?.sessionId,
 			area: areaInfo.labelByCell.get(`${Math.round(p.x / CELL_SIZE)},${Math.round(p.z / CELL_SIZE)}`) ?? "Out of Bounds",
+			carriedKeycardColor: carriedColorBySessionId.get(id) ?? null,
+			carriedSuitcase: carriedSuitcaseBySessionId.has(id),
+			isInteracting: !!p.isInteracting,
+			interactionProgress:
+				typeof p.interactionDurationMs === "number" && p.interactionDurationMs > 0
+					? Math.max(0, Math.min(1, p.interactionElapsedMs / p.interactionDurationMs))
+					: 0,
 		}));
-	}, [areaInfo.labelByCell, players, room?.sessionId]);
+	}, [areaInfo.labelByCell, keycards, players, room?.sessionId, suitcases]);
 
 	return (
 		<>
-			<ThirdPersonCamera targetRef={localVisualRef} />
-			<MovementInput inputRef={inputRef} />
+			<ThirdPersonCamera targetRef={localVisualRef} enabled={!debugCameraEnabled} />
+			<DebugOrbitCamera targetRef={localVisualRef} enabled={debugCameraEnabled} />
+			<MovementInput inputRef={inputRef} enabled={!debugCameraEnabled} />
 			<ambientLight intensity={0.42} />
 			<LightingLayer layout={layout} areaInfo={areaInfo} currentArea={currentArea} fogByCell={fogByCell} />
 			<MapLevel
@@ -504,6 +850,9 @@ function SceneContent({ onAreaChange, revealAll }: { onAreaChange?: (label: stri
 				playerPositionRef={localVisualRef}
 			/>
 			<DoorLayer fogByCell={fogByCell} revealAll={revealAll} />
+			<KeycardLayer fogByCell={fogByCell} revealAll={revealAll} />
+			<SuitcaseLayer fogByCell={fogByCell} revealAll={revealAll} />
+			<VaultLayer fogByCell={fogByCell} revealAll={revealAll} />
 			{list.map((p) =>
 				p.isLocal ? (
 					<PlayerVisual
@@ -512,6 +861,10 @@ function SceneContent({ onAreaChange, revealAll }: { onAreaChange?: (label: stri
 						isLocal
 						positionRef={localVisualRef}
 						smoothing={0}
+						carriedKeycardColor={p.carriedKeycardColor}
+						carriedSuitcase={p.carriedSuitcase}
+						isInteracting={p.isInteracting}
+						interactionProgress={p.interactionProgress}
 					/>
 				) : revealAll || p.area === currentArea ? (
 					<PlayerVisual
@@ -520,6 +873,10 @@ function SceneContent({ onAreaChange, revealAll }: { onAreaChange?: (label: stri
 						isLocal={false}
 						target={{ x: p.x, z: p.z }}
 						smoothing={18}
+						carriedKeycardColor={p.carriedKeycardColor}
+						carriedSuitcase={p.carriedSuitcase}
+						isInteracting={p.isInteracting}
+						interactionProgress={p.interactionProgress}
 					/>
 				) : null,
 			)}
@@ -527,11 +884,19 @@ function SceneContent({ onAreaChange, revealAll }: { onAreaChange?: (label: stri
 	);
 }
 
-export function GameScene({ onAreaChange, revealAll }: { onAreaChange?: (label: string) => void; revealAll: boolean }) {
+export function GameScene({
+	onAreaChange,
+	revealAll,
+	debugCameraEnabled,
+}: {
+	onAreaChange?: (label: string) => void;
+	revealAll: boolean;
+	debugCameraEnabled: boolean;
+}) {
 	return (
 		<Canvas shadows camera={{ fov: 50, near: 0.1, far: 500 }} style={{ width: "100%", height: "100%" }}>
 			<color attach="background" args={["#0e141c"]} />
-			<SceneContent onAreaChange={onAreaChange} revealAll={revealAll} />
+			<SceneContent onAreaChange={onAreaChange} revealAll={revealAll} debugCameraEnabled={debugCameraEnabled} />
 		</Canvas>
 	);
 }

@@ -168,12 +168,12 @@ function WallFixture({ mode, fixture }: { mode: "off" | "memory" | "active"; fix
 				<meshStandardMaterial
 					color={active ? "#ffe7ba" : memory ? "#988872" : "#6e6254"}
 					emissive={active ? "#ffd89a" : memory ? "#8e7b64" : "#000000"}
-					emissiveIntensity={active ? 1.2 : memory ? 0.12 : 0}
+					emissiveIntensity={active ? 2.13 : memory ? 0.12 : 0}
 					roughness={0.3}
 					metalness={0.02}
 				/>
 			</mesh>
-			{active ? <pointLight color="#ffd7a1" intensity={1.45} distance={8} decay={2} position={[0, 0.1, 0.46]} /> : null}
+			{active ? <pointLight color="#ffd7a1" intensity={2.6} distance={14.2} decay={2} position={[0, 0.1, 0.46]} /> : null}
 		</group>
 	);
 }

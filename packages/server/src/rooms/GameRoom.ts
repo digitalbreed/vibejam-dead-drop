@@ -1,12 +1,18 @@
 import { Room, Client } from "colyseus";
 import {
+	buildVaultCollisionWalls,
 	DoorState,
 	GameState,
+	generateVaultPlacement,
+	KeycardState,
 	Player,
+	SuitcaseState,
+	VaultState,
 	buildClosedDoorWalls,
 	buildCollisionWalls,
-	generateMapLayout,
 	generateDoorPlacements,
+	generateKeycardPlacements,
+	generateMapLayout,
 	moveWithCollision,
 	spawnInCenterHub,
 	type GameClientMessages,
@@ -14,11 +20,15 @@ import {
 	type WallRect,
 } from "@vibejam/shared";
 import { DoorController } from "./interactables/DoorController.js";
+import { KeycardController } from "./interactables/KeycardController.js";
+import { SuitcaseController } from "./interactables/SuitcaseController.js";
+import { VaultController } from "./interactables/VaultController.js";
 
 /** Minimum players before the match starts (1 = solo dev; raise for real matchmaking). */
 const MIN_PLAYERS = Number(process.env.MIN_PLAYERS ?? 1);
 
 const DEFAULT_MAP_MAX_DISTANCE = Number(process.env.MAP_MAX_DISTANCE ?? 12);
+const INTERACTION_DURATION_MS = 5000;
 
 const PALETTE = [
 	0xe74c3c, 0x3498db, 0x2ecc71, 0xf1c40f, 0x9b59b6, 0x1abc9c, 0xe67e22, 0x34495e,
@@ -38,6 +48,10 @@ export class GameRoom extends Room {
 	private layout!: MapLayout;
 	private staticWalls: WallRect[] = [];
 	private doorControllers: DoorController[] = [];
+	private keycardControllers = new Map<string, KeycardController>();
+	private suitcaseControllers = new Map<string, SuitcaseController>();
+	private vaultControllers = new Map<string, VaultController>();
+	private interactionHold = new Map<string, boolean>();
 	maxClients = 16;
 
 	messages = {
@@ -49,6 +63,16 @@ export class GameRoom extends Room {
 			const nz = len > 1 ? z / len : z;
 			this.input.set(client.sessionId, { x: nx, z: nz });
 		},
+		interact: (client: Client, _message: GameClientMessages["interact"]) => {
+			if (this.state.phase !== "playing") {
+				return;
+			}
+			this.handleInteract(client);
+		},
+		interact_hold: (client: Client, message: GameClientMessages["interact_hold"]) => {
+			const active = !!message?.active;
+			this.handleInteractHold(client, active);
+		},
 	};
 
 	onCreate(options: { mapMaxDistance?: number }) {
@@ -57,7 +81,11 @@ export class GameRoom extends Room {
 		this.state.mapMaxDistance = cap;
 		this.layout = generateMapLayout(this.state.mapSeed, this.state.mapMaxDistance);
 		this.staticWalls = buildCollisionWalls(this.layout);
-		this.createDoors();
+		this.createInteractables();
+		this.staticWalls = [
+			...this.staticWalls,
+			...buildVaultCollisionWalls(Array.from(this.state.vaults.values(), (vault) => ({ x: vault.x, z: vault.z }))),
+		];
 		this.setSimulationInterval((deltaTime) => this.tick(deltaTime), 1000 / 20);
 	}
 
@@ -72,13 +100,29 @@ export class GameRoom extends Room {
 	}
 
 	onLeave(client: Client, _code: number) {
+		const player = this.state.players.get(client.sessionId);
+		if (player) {
+			const carried = this.findCarriedKeycard(client.sessionId);
+			if (carried) {
+				carried.drop(client.sessionId, player.x, player.z);
+			}
+			const carriedSuitcase = this.findCarriedSuitcase(client.sessionId);
+			if (carriedSuitcase) {
+				carriedSuitcase.drop(client.sessionId, player.x, player.z);
+			}
+		}
 		this.state.players.delete(client.sessionId);
 		this.input.delete(client.sessionId);
+		this.interactionHold.delete(client.sessionId);
 	}
 
 	onDispose() {
 		this.input.clear();
+		this.interactionHold.clear();
 		this.doorControllers = [];
+		this.keycardControllers.clear();
+		this.suitcaseControllers.clear();
+		this.vaultControllers.clear();
 	}
 
 	private tryStartMatch() {
@@ -102,6 +146,12 @@ export class GameRoom extends Room {
 				this.broadcast("interactable_event", event);
 			}
 		}
+		for (const controller of this.vaultControllers.values()) {
+			const events = controller.tick(this.state.players.values(), deltaMs);
+			for (const event of events) {
+				this.broadcast("interactable_event", event);
+			}
+		}
 		const dt = deltaMs / 1000;
 		const speed = 12;
 		const dynamicWalls = buildClosedDoorWalls(
@@ -119,11 +169,43 @@ export class GameRoom extends Room {
 			player.x = next.x;
 			player.z = next.z;
 		});
+		this.tickInteractions(deltaMs);
+	}
+
+	private createInteractables() {
+		this.state.interactables.clear();
+		this.state.keycards.clear();
+		this.state.suitcases.clear();
+		this.state.vaults.clear();
+		this.doorControllers = [];
+		this.keycardControllers.clear();
+		this.suitcaseControllers.clear();
+		this.vaultControllers.clear();
+		this.createVaults();
+		this.createDoors();
+		this.createKeycards();
+		this.createSuitcases();
+	}
+
+	private createVaults() {
+		const placement = generateVaultPlacement();
+		const vault = new VaultState();
+		vault.id = placement.id;
+		vault.kind = "vault";
+		vault.range = placement.range;
+		vault.x = placement.x;
+		vault.z = placement.z;
+		vault.insertedBlue = false;
+		vault.insertedRed = false;
+		vault.isUnlocked = false;
+		vault.isDoorOpen = false;
+		vault.doorHingeSide = placement.doorHingeSide;
+		vault.doorOpenT = 0;
+		this.state.vaults.set(vault.id, vault);
+		this.vaultControllers.set(vault.id, new VaultController(vault));
 	}
 
 	private createDoors() {
-		this.state.interactables.clear();
-		this.doorControllers = [];
 		for (const placement of generateDoorPlacements(this.layout)) {
 			const door = new DoorState();
 			door.id = placement.id;
@@ -146,5 +228,291 @@ export class GameRoom extends Room {
 			this.state.interactables.set(door.id, door);
 			this.doorControllers.push(new DoorController(door));
 		}
+	}
+
+	private createKeycards() {
+		for (const placement of generateKeycardPlacements(this.layout)) {
+			const keycard = new KeycardState();
+			keycard.id = placement.id;
+			keycard.keyId = placement.id;
+			keycard.kind = "keycard";
+			keycard.range = placement.range;
+			keycard.x = placement.x;
+			keycard.z = placement.z;
+			keycard.worldX = placement.x;
+			keycard.worldZ = placement.z;
+			keycard.color = placement.color;
+			keycard.state = "ground";
+			keycard.carrierSessionId = "";
+			keycard.containerId = "";
+			this.state.keycards.set(keycard.id, keycard);
+			this.keycardControllers.set(keycard.id, new KeycardController(keycard));
+		}
+	}
+
+	private createSuitcases() {
+		const vaultPlacement = generateVaultPlacement();
+		const suitcase = new SuitcaseState();
+		suitcase.id = "suitcase_primary";
+		suitcase.suitcaseId = suitcase.id;
+		suitcase.kind = "suitcase";
+		suitcase.range = 2.25;
+		suitcase.x = vaultPlacement.x;
+		suitcase.z = vaultPlacement.z;
+		suitcase.worldX = vaultPlacement.x;
+		suitcase.worldZ = vaultPlacement.z;
+		suitcase.state = "contained";
+		suitcase.carrierSessionId = "";
+		suitcase.containerId = vaultPlacement.id;
+		this.state.suitcases.set(suitcase.id, suitcase);
+		this.suitcaseControllers.set(suitcase.id, new SuitcaseController(suitcase));
+	}
+
+	private handleInteract(client: Client) {
+		const sessionId = client.sessionId;
+		const player = this.state.players.get(sessionId);
+		if (!player) {
+			return;
+		}
+		if (player.isInteracting) {
+			return;
+		}
+		const carriedSuitcase = this.findCarriedSuitcase(sessionId);
+		if (carriedSuitcase) {
+			const event = carriedSuitcase.drop(sessionId, player.x, player.z);
+			if (event) {
+				this.broadcast("interactable_event", event, { except: client });
+			}
+			return;
+		}
+		const carried = this.findCarriedKeycard(sessionId);
+		if (carried) {
+			const vault = this.findNearestInsertableVault(player, carried.keycard);
+			if (vault) {
+				const events = vault.insertCard(carried.keycard, sessionId);
+				if (events.length > 0) {
+					carried.setContained(vault.vault.id);
+				}
+				for (const event of events) {
+					this.broadcast("interactable_event", event);
+				}
+				return;
+			}
+			const event = carried.drop(sessionId, player.x, player.z);
+			if (event) {
+				this.broadcast("interactable_event", event, { except: client });
+			}
+			return;
+		}
+		const nearestSuitcase = this.findNearestGroundSuitcase(player);
+		if (nearestSuitcase) {
+			const event = nearestSuitcase.pickup(sessionId);
+			if (event) {
+				this.broadcast("interactable_event", event, { except: client });
+			}
+			return;
+		}
+		const nearest = this.findNearestGroundKeycard(player);
+		if (!nearest) {
+			return;
+		}
+		const event = nearest.pickup(sessionId);
+		if (event) {
+			this.broadcast("interactable_event", event, { except: client });
+		}
+	}
+
+	private findCarriedKeycard(sessionId: string): KeycardController | null {
+		for (const controller of this.keycardControllers.values()) {
+			if (controller.isCarriedBy(sessionId)) {
+				return controller;
+			}
+		}
+		return null;
+	}
+
+	private findNearestGroundKeycard(player: Player): KeycardController | null {
+		let nearest: KeycardController | null = null;
+		let nearestDistSq = Infinity;
+		for (const controller of this.keycardControllers.values()) {
+			if (!controller.isGrounded() || !controller.isInRange(player)) {
+				continue;
+			}
+			const distSq = controller.distanceSqTo(player);
+			if (distSq < nearestDistSq) {
+				nearestDistSq = distSq;
+				nearest = controller;
+			}
+		}
+		return nearest;
+	}
+
+	private findCarriedSuitcase(sessionId: string): SuitcaseController | null {
+		for (const controller of this.suitcaseControllers.values()) {
+			if (controller.isCarriedBy(sessionId)) {
+				return controller;
+			}
+		}
+		return null;
+	}
+
+	private findNearestGroundSuitcase(player: Player): SuitcaseController | null {
+		let nearest: SuitcaseController | null = null;
+		let nearestDistSq = Infinity;
+		for (const controller of this.suitcaseControllers.values()) {
+			if (!controller.isGrounded() || !controller.isInRange(player)) {
+				continue;
+			}
+			const distSq = controller.distanceSqTo(player);
+			if (distSq < nearestDistSq) {
+				nearestDistSq = distSq;
+				nearest = controller;
+			}
+		}
+		return nearest;
+	}
+
+	private findNearestInsertableVault(player: Player, carried: KeycardState): VaultController | null {
+		let nearest: VaultController | null = null;
+		let nearestDistSq = Infinity;
+		for (const controller of this.vaultControllers.values()) {
+			if (!controller.canInsertCard(carried) || !controller.isInInsertRange(player)) {
+				continue;
+			}
+			const dx = player.x - controller.vault.x;
+			const dz = player.z - controller.vault.z;
+			const distSq = dx * dx + dz * dz;
+			if (distSq < nearestDistSq) {
+				nearestDistSq = distSq;
+				nearest = controller;
+			}
+		}
+		return nearest;
+	}
+
+	private handleInteractHold(client: Client, active: boolean) {
+		if (this.state.phase !== "playing") {
+			return;
+		}
+		const sessionId = client.sessionId;
+		this.interactionHold.set(sessionId, active);
+		const player = this.state.players.get(sessionId);
+		if (!player) {
+			return;
+		}
+		if (!active) {
+			if (player.isInteracting && player.interactionElapsedMs >= player.interactionDurationMs - 50) {
+				this.completeInteraction(sessionId, player);
+				return;
+			}
+			this.cancelInteraction(player);
+			return;
+		}
+		if (player.isInteracting) {
+			return;
+		}
+		const candidate = this.findInteractionCandidate(player);
+		if (!candidate) {
+			client.send("interaction_feedback", { kind: "error_beep" });
+			return;
+		}
+		player.isInteracting = true;
+		player.interactionKind = candidate.kind;
+		player.interactionTargetId = candidate.id;
+		player.interactionElapsedMs = 0;
+		player.interactionDurationMs = candidate.durationMs;
+	}
+
+	private findInteractionCandidate(
+		player: Player,
+	): { kind: "vault"; id: string; durationMs: number } | null {
+		let nearest: VaultController | null = null;
+		let nearestDistSq = Infinity;
+		for (const controller of this.vaultControllers.values()) {
+			if (!controller.canCompleteInteraction(player)) {
+				continue;
+			}
+			const dx = player.x - controller.vault.x;
+			const dz = player.z - controller.vault.z;
+			const distSq = dx * dx + dz * dz;
+			if (distSq < nearestDistSq) {
+				nearestDistSq = distSq;
+				nearest = controller;
+			}
+		}
+		if (!nearest) {
+			return null;
+		}
+		return { kind: "vault", id: nearest.vault.id, durationMs: INTERACTION_DURATION_MS };
+	}
+
+	private tickInteractions(deltaMs: number) {
+		for (const [sessionId, player] of this.state.players.entries()) {
+			if (!player.isInteracting) {
+				continue;
+			}
+			if (!this.interactionHold.get(sessionId)) {
+				this.cancelInteraction(player);
+				continue;
+			}
+			if (!this.canContinueInteraction(player)) {
+				this.cancelInteraction(player);
+				continue;
+			}
+			player.interactionElapsedMs = Math.min(
+				player.interactionDurationMs,
+				player.interactionElapsedMs + deltaMs,
+			);
+			if (player.interactionElapsedMs >= player.interactionDurationMs) {
+				this.completeInteraction(sessionId, player);
+			}
+		}
+	}
+
+	private canContinueInteraction(player: Player): boolean {
+		if (player.interactionKind !== "vault") {
+			return false;
+		}
+		const controller = this.vaultControllers.get(player.interactionTargetId);
+		if (!controller) {
+			return false;
+		}
+		return controller.vault.isUnlocked && !controller.vault.isDoorOpen;
+	}
+
+	private completeInteraction(sessionId: string, player: Player) {
+		if (player.interactionKind === "vault") {
+			const controller = this.vaultControllers.get(player.interactionTargetId);
+			if (controller && controller.vault.isUnlocked && !controller.vault.isDoorOpen) {
+				for (const event of controller.completeInteraction()) {
+					this.broadcast("interactable_event", event);
+				}
+				const suitcase = this.findPrimarySuitcase();
+				if (suitcase) {
+					const event = suitcase.forceCarry(sessionId);
+					this.broadcast("interactable_event", event);
+				}
+			}
+		}
+		this.resetInteractionState(player);
+	}
+
+	private cancelInteraction(player: Player) {
+		if (!player.isInteracting) {
+			return;
+		}
+		this.resetInteractionState(player);
+	}
+
+	private resetInteractionState(player: Player) {
+		player.isInteracting = false;
+		player.interactionKind = "";
+		player.interactionTargetId = "";
+		player.interactionElapsedMs = 0;
+		player.interactionDurationMs = 0;
+	}
+
+	private findPrimarySuitcase(): SuitcaseController | null {
+		return this.suitcaseControllers.values().next().value ?? null;
 	}
 }

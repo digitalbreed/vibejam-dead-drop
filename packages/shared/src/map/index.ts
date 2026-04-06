@@ -30,6 +30,24 @@ export {
 	type DoorAdjacentKind,
 } from "./doors.js";
 export {
+	generateKeycardPlacements,
+	type KeycardPlacement,
+	type KeycardColor,
+} from "./keycards.js";
+export {
+	generateSuitcasePlacements,
+	type SuitcasePlacement,
+} from "./suitcases.js";
+export {
+	generateVaultPlacement,
+	buildVaultCollisionWalls,
+	VAULT_ID,
+	VAULT_TILE_IX,
+	VAULT_TILE_IZ,
+	type VaultPlacement,
+	type VaultHingeSide,
+} from "./vaults.js";
+export {
 	canonicalEdgeKey,
 	generateMapLayout,
 	layoutOccupancy,

@@ -5,9 +5,10 @@
 		"packages/*"
 	],
 	"scripts": {
-		"dev": "concurrently -n shared,server,client -c yellow,blue,green \"npm run dev -w packages/shared\" \"npm run start -w packages/server\" \"npm run dev -w packages/client\"",
+		"dev": "concurrently -n shared,server,client -c yellow,blue,green \"npm run dev -w packages/shared\" \"npm run start:server:fresh\" \"npm run dev -w packages/client\"",
 		"build": "npm run build -w packages/shared && npm run build -w packages/server && npm run build -w packages/client",
 		"start:server": "npm run start -w packages/server",
+		"start:server:fresh": "node ./scripts/start-server-fresh.mjs --port 2567",
 		"dev:client": "npm run dev -w packages/client"
 	},
 	"devDependencies": {

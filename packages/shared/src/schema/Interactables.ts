@@ -22,3 +22,31 @@ export class DoorState extends InteractableState {
 	@type("number") side1WallStyle: number = 0;
 	@type("number") side2WallStyle: number = 0;
 }
+
+export class KeycardState extends InteractableState {
+	@type("string") keyId: string = "";
+	@type("number") worldX: number = 0;
+	@type("number") worldZ: number = 0;
+	@type("string") color: string = "blue";
+	@type("string") state: string = "ground";
+	@type("string") carrierSessionId: string = "";
+	@type("string") containerId: string = "";
+}
+
+export class SuitcaseState extends InteractableState {
+	@type("string") suitcaseId: string = "";
+	@type("number") worldX: number = 0;
+	@type("number") worldZ: number = 0;
+	@type("string") state: string = "ground";
+	@type("string") carrierSessionId: string = "";
+	@type("string") containerId: string = "";
+}
+
+export class VaultState extends InteractableState {
+	@type("boolean") insertedBlue: boolean = false;
+	@type("boolean") insertedRed: boolean = false;
+	@type("boolean") isUnlocked: boolean = false;
+	@type("boolean") isDoorOpen: boolean = false;
+	@type("string") doorHingeSide: string = "left";
+	@type("number") doorOpenT: number = 0;
+}

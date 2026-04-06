@@ -102,8 +102,9 @@ export function moveWithCollision(
 	walls: WallRect[],
 	radius = DEFAULT_PLAYER_RADIUS,
 ): { x: number; z: number } {
-	const nextX = moveAxis(x, z, deltaX, "x", walls, radius);
-	const nextZ = moveAxis(nextX, z, deltaZ, "z", walls, radius);
+	const resolvedStart = resolvePenetration(x, z, walls, radius);
+	const nextX = moveAxis(resolvedStart.x, resolvedStart.z, deltaX, "x", walls, radius);
+	const nextZ = moveAxis(nextX, resolvedStart.z, deltaZ, "z", walls, radius);
 	return { x: nextX, z: nextZ };
 }
 
@@ -174,4 +175,50 @@ function circleIntersectsRect(x: number, z: number, radius: number, rect: WallRe
 	const dx = x - closestX;
 	const dz = z - closestZ;
 	return dx * dx + dz * dz < radius * radius;
+}
+
+function resolvePenetration(x: number, z: number, walls: WallRect[], radius: number): { x: number; z: number } {
+	let currentX = x;
+	let currentZ = z;
+	const epsilon = 0.0001;
+
+	for (let iteration = 0; iteration < 6; iteration++) {
+		let wallHit: WallRect | null = null;
+		for (const wall of walls) {
+			if (circleIntersectsRect(currentX, currentZ, radius, wall)) {
+				wallHit = wall;
+				break;
+			}
+		}
+		if (!wallHit) {
+			break;
+		}
+
+		const pushLeft = wallHit.minX - radius - currentX - epsilon;
+		const pushRight = wallHit.maxX + radius - currentX + epsilon;
+		const pushDown = wallHit.minZ - radius - currentZ - epsilon;
+		const pushUp = wallHit.maxZ + radius - currentZ + epsilon;
+
+		const candidates: { axis: "x" | "z"; delta: number }[] = [
+			{ axis: "x", delta: pushLeft },
+			{ axis: "x", delta: pushRight },
+			{ axis: "z", delta: pushDown },
+			{ axis: "z", delta: pushUp },
+		];
+		let best = candidates[0]!;
+		for (let i = 1; i < candidates.length; i++) {
+			const candidate = candidates[i]!;
+			if (Math.abs(candidate.delta) < Math.abs(best.delta)) {
+				best = candidate;
+			}
+		}
+
+		if (best.axis === "x") {
+			currentX += best.delta;
+		} else {
+			currentZ += best.delta;
+		}
+	}
+
+	return { x: currentX, z: currentZ };
 }
