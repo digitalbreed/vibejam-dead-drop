@@ -1,0 +1,215 @@
+import { useMemo } from "react";
+import { CELL_SIZE, ROOM_HEIGHT, layoutOccupancy, mulberry32, type MapLayout } from "@vibejam/shared";
+import type { FogState } from "./GameScene";
+
+type AreaInfo = {
+	labelByCell: Map<string, string>;
+};
+
+type CorridorLight = {
+	kind: "corridor";
+	area: string;
+	x: number;
+	y: number;
+	z: number;
+	length: number;
+	rotationY: number;
+};
+
+type WallLight = {
+	kind: "wall";
+	area: string;
+	x: number;
+	y: number;
+	z: number;
+	rotationY: number;
+};
+
+type Fixture = CorridorLight | WallLight;
+
+const WALL_LIGHT_INSET = 0.18;
+
+function hashLabel(label: string): number {
+	let hash = 2166136261 >>> 0;
+	for (let i = 0; i < label.length; i++) {
+		hash ^= label.charCodeAt(i);
+		hash = Math.imul(hash, 16777619) >>> 0;
+	}
+	return hash >>> 0;
+}
+
+function chooseIndices(count: number, targetCount: number, rng: () => number): number[] {
+	if (count <= targetCount) {
+		return Array.from({ length: count }, (_, index) => index);
+	}
+	const chosen = new Set<number>();
+	while (chosen.size < targetCount) {
+		chosen.add(Math.floor(rng() * count));
+	}
+	return [...chosen].sort((a, b) => a - b);
+}
+
+function buildFixtures(layout: MapLayout, areaInfo: AreaInfo): Fixture[] {
+	const occupancy = layoutOccupancy(layout);
+	const cellData = new Map(layout.cells.map((cell) => [`${cell.ix},${cell.iz}`, cell] as const));
+	const cellsByArea = new Map<string, { ix: number; iz: number }[]>();
+	for (const cell of layout.cells) {
+		const area = areaInfo.labelByCell.get(`${cell.ix},${cell.iz}`);
+		if (!area) {
+			continue;
+		}
+		const bucket = cellsByArea.get(area) ?? [];
+		bucket.push({ ix: cell.ix, iz: cell.iz });
+		cellsByArea.set(area, bucket);
+	}
+
+	const fixtures: Fixture[] = [];
+	for (const [area, cells] of cellsByArea) {
+		const rng = mulberry32(layout.seed ^ hashLabel(area));
+		if (area.startsWith("Corridor")) {
+			for (const cell of cells) {
+				const east = cellData.get(`${cell.ix + 1},${cell.iz}`)?.kind === "hall";
+				const west = cellData.get(`${cell.ix - 1},${cell.iz}`)?.kind === "hall";
+				const south = cellData.get(`${cell.ix},${cell.iz + 1}`)?.kind === "hall";
+				const north = cellData.get(`${cell.ix},${cell.iz - 1}`)?.kind === "hall";
+				const alongX = east || west;
+				const alongZ = north || south;
+				fixtures.push({
+					kind: "corridor",
+					area,
+					x: cell.ix * CELL_SIZE,
+					y: ROOM_HEIGHT - 0.14,
+					z: cell.iz * CELL_SIZE,
+					length: alongX && !alongZ ? CELL_SIZE * 0.72 : CELL_SIZE * 0.56,
+					rotationY: alongX && !alongZ ? Math.PI / 2 : 0,
+				});
+			}
+			continue;
+		}
+
+		const candidatesByWall = new Map<string, WallLight[]>();
+		for (const cell of cells) {
+			const wx = cell.ix * CELL_SIZE;
+			const wz = cell.iz * CELL_SIZE;
+			const addCandidate = (wall: string, x: number, z: number, rotationY: number) => {
+				const bucket = candidatesByWall.get(wall) ?? [];
+				bucket.push({
+					kind: "wall",
+					area,
+					x,
+					y: 1.55,
+					z,
+					rotationY,
+				});
+				candidatesByWall.set(wall, bucket);
+			};
+			if (!occupancy.has(`${cell.ix + 1},${cell.iz}`)) {
+				addCandidate("east", wx + CELL_SIZE / 2 - WALL_LIGHT_INSET, wz, -Math.PI / 2);
+			}
+			if (!occupancy.has(`${cell.ix - 1},${cell.iz}`)) {
+				addCandidate("west", wx - CELL_SIZE / 2 + WALL_LIGHT_INSET, wz, Math.PI / 2);
+			}
+			if (!occupancy.has(`${cell.ix},${cell.iz + 1}`)) {
+				addCandidate("south", wx, wz + CELL_SIZE / 2 - WALL_LIGHT_INSET, Math.PI);
+			}
+			if (!occupancy.has(`${cell.ix},${cell.iz - 1}`)) {
+				addCandidate("north", wx, wz - CELL_SIZE / 2 + WALL_LIGHT_INSET, 0);
+			}
+		}
+
+		for (const [, candidates] of [...candidatesByWall.entries()].sort((a, b) => a[0].localeCompare(b[0]))) {
+			if (candidates.length === 0) {
+				continue;
+			}
+			const targetCount = Math.max(1, Math.floor(candidates.length / 3));
+			for (const index of chooseIndices(candidates.length, targetCount, rng)) {
+				const candidate = candidates[index];
+				if (candidate) {
+					fixtures.push(candidate);
+				}
+			}
+		}
+	}
+	return fixtures;
+}
+
+function CorridorFixture({ mode, fixture }: { mode: "off" | "memory" | "active"; fixture: CorridorLight }) {
+	const active = mode === "active";
+	const memory = mode === "memory";
+	return (
+		<group position={[fixture.x, fixture.y, fixture.z]} rotation={[0, fixture.rotationY, 0]}>
+			<mesh castShadow receiveShadow>
+				<boxGeometry args={[0.08, 0.05, fixture.length]} />
+				<meshStandardMaterial
+					color={active ? "#dfefff" : memory ? "#7c8792" : "#4c545d"}
+					emissive={active ? "#d6ecff" : memory ? "#6f7a86" : "#000000"}
+					emissiveIntensity={active ? 1.4 : memory ? 0.18 : 0}
+					roughness={0.34}
+					metalness={0.08}
+				/>
+			</mesh>
+			{active ? <rectAreaLight args={["#cde6ff", 3.4, fixture.length * 0.92, 0.24]} position={[0, -0.1, 0]} rotation={[-Math.PI / 2, 0, 0]} /> : null}
+			{active ? <pointLight color="#d8ebff" intensity={0.75} distance={5.5} decay={2} position={[0, -0.22, 0]} /> : null}
+		</group>
+	);
+}
+
+function WallFixture({ mode, fixture }: { mode: "off" | "memory" | "active"; fixture: WallLight }) {
+	const active = mode === "active";
+	const memory = mode === "memory";
+	return (
+		<group position={[fixture.x, fixture.y, fixture.z]} rotation={[0, fixture.rotationY, 0]}>
+			<mesh castShadow receiveShadow position={[0, 0, 0]}>
+				<boxGeometry args={[0.18, 0.34, 0.28]} />
+				<meshStandardMaterial color="#8a6c4a" roughness={0.5} metalness={0.1} />
+			</mesh>
+			<mesh castShadow={false} receiveShadow={false} position={[0, 0.16, 0.09]}>
+				<sphereGeometry args={[0.11, 12, 12]} />
+				<meshStandardMaterial
+					color={active ? "#ffe7ba" : memory ? "#988872" : "#6e6254"}
+					emissive={active ? "#ffd89a" : memory ? "#8e7b64" : "#000000"}
+					emissiveIntensity={active ? 1.2 : memory ? 0.12 : 0}
+					roughness={0.3}
+					metalness={0.02}
+				/>
+			</mesh>
+			{active ? <pointLight color="#ffd7a1" intensity={1.45} distance={8} decay={2} position={[0, 0.1, 0.46]} /> : null}
+		</group>
+	);
+}
+
+export function LightingLayer({
+	layout,
+	areaInfo,
+	currentArea,
+	fogByCell,
+}: {
+	layout: MapLayout;
+	areaInfo: AreaInfo;
+	currentArea: string;
+	fogByCell: Map<string, FogState>;
+}) {
+	const fixtures = useMemo(() => buildFixtures(layout, areaInfo), [areaInfo, layout]);
+
+	return (
+		<group>
+			{fixtures.map((fixture, index) => {
+				const cellKey =
+					fixture.kind === "corridor"
+						? `${Math.round(fixture.x / CELL_SIZE)},${Math.round(fixture.z / CELL_SIZE)}`
+						: `${Math.round(fixture.x / CELL_SIZE)},${Math.round(fixture.z / CELL_SIZE)}`;
+				const fog = fogByCell.get(cellKey) ?? "hidden";
+				if (fog === "hidden") {
+					return null;
+				}
+				const active = fixture.area === currentArea;
+				const mode: "off" | "memory" | "active" = active ? "active" : fog === "explored" ? "memory" : "off";
+				return fixture.kind === "corridor" ? (
+					<CorridorFixture key={`${fixture.area}-${index}`} fixture={fixture} mode={mode} />
+				) : (
+					<WallFixture key={`${fixture.area}-${index}`} fixture={fixture} mode={mode} />
+				);
+			})}
+		</group>
+	);
+}

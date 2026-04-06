@@ -1,0 +1,17 @@
+# https://editorconfig.org
+root = true
+
+[*]
+indent_style = tab
+indent_size = 4
+charset = utf-8
+end_of_line = lf
+insert_final_newline = true
+trim_trailing_whitespace = true
+
+[*.md]
+trim_trailing_whitespace = false
+
+# Same-line opening braces (1TBS / K&R): enforce in your formatter; JetBrains example:
+# [{*.ts,*.tsx,*.js,*.jsx,*.json}]
+# ij_javascript_brace_style = end_of_line

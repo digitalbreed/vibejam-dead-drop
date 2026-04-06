@@ -1,0 +1,23 @@
+*,
+*::before,
+*::after {
+	box-sizing: border-box;
+}
+
+html,
+body,
+#root {
+	height: 100%;
+	margin: 0;
+}
+
+body {
+	font-family: system-ui, Segoe UI, Roboto, Helvetica, Arial, sans-serif;
+	background: #0b0f14;
+	color: #e8eef5;
+}
+
+button {
+	font: inherit;
+	cursor: pointer;
+}
