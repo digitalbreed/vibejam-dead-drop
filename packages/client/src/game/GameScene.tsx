@@ -4,8 +4,10 @@ import { Color, DoubleSide, Group, Vector2, Vector3 } from "three";
 import {
 	buildClosedDoorWalls,
 	buildCollisionWalls,
+	buildFileCabinetCollisionWalls,
 	buildVaultCollisionWalls,
 	CELL_SIZE,
+	generateFileCabinetPlacements,
 	generateVaultPlacement,
 	generateMapLayout,
 	layoutRoomMap,
@@ -28,6 +30,7 @@ import { LightingLayer } from "./LightingLayer";
 import { MapLevel } from "./MapLevel";
 import { SuitcaseLayer } from "./suitcases/SuitcaseLayer";
 import { VaultLayer } from "./vaults/VaultLayer";
+import { FileCabinetLayer } from "./fileCabinets/FileCabinetLayer";
 
 const MOVE_SPEED = 12;
 const CAMERA_OFFSET = { x: 0, y: 8.5, z: 14 };
@@ -37,7 +40,7 @@ const ORBIT_MAX_RADIUS = 60;
 const ORBIT_MIN_POLAR = 0.2;
 const ORBIT_MAX_POLAR = Math.PI - 0.2;
 
-type AreaInfo = {
+export type AreaInfo = {
 	labelByCell: Map<string, string>;
 };
 export type FogState = "hidden" | "explored" | "visible";
@@ -729,6 +732,10 @@ function SceneContent({
 		return generateMapLayout(mapSeed ?? 0, mapMaxDistance ?? 12);
 	}, [mapSeed, mapMaxDistance]);
 	const staticWalls = useMemo(() => buildCollisionWalls(layout), [layout]);
+	const fileCabinetWalls = useMemo(
+		() => buildFileCabinetCollisionWalls(generateFileCabinetPlacements(layout)),
+		[layout],
+	);
 	const dynamicWalls = useMemo(() => {
 		const doors = schemaMapValues<DoorState>(interactables);
 		const syncedVaults = schemaMapValues<{ x: number; z: number }>(vaults);
@@ -754,7 +761,10 @@ function SceneContent({
 			})),
 		).concat(vaultWalls);
 	}, [interactables, vaults]);
-	const walls = useMemo(() => [...staticWalls, ...dynamicWalls], [dynamicWalls, staticWalls]);
+	const walls = useMemo(
+		() => [...staticWalls, ...dynamicWalls, ...fileCabinetWalls],
+		[dynamicWalls, fileCabinetWalls, staticWalls],
+	);
 	const areaInfo = useMemo(() => buildAreaInfo(layout), [layout]);
 	const fogByCell = useMemo(() => buildFogByCell(areaInfo, currentArea, visitedAreas, revealAll), [areaInfo, currentArea, revealAll, visitedAreas]);
 
@@ -869,6 +879,14 @@ function SceneContent({
 			<DoorLayer fogByCell={fogByCell} revealAll={revealAll} audioEnabled={audioEnabled} />
 			<KeycardLayer fogByCell={fogByCell} revealAll={revealAll} audioEnabled={audioEnabled} />
 			<SuitcaseLayer fogByCell={fogByCell} revealAll={revealAll} audioEnabled={audioEnabled} />
+			<FileCabinetLayer
+				fogByCell={fogByCell}
+				revealAll={revealAll}
+				mapSeed={mapSeed ?? 0}
+				mapMaxDistance={mapMaxDistance ?? 12}
+				areaInfo={areaInfo}
+				currentArea={currentArea}
+			/>
 			<VaultLayer fogByCell={fogByCell} revealAll={revealAll} audioEnabled={audioEnabled} />
 			{list.map((p) =>
 				p.isLocal ? (

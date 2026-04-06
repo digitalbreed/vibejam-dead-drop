@@ -48,6 +48,12 @@ export {
 	type VaultHingeSide,
 } from "./vaults.js";
 export {
+	buildFileCabinetCollisionWalls,
+	generateFileCabinetPlacements,
+	type FileCabinetPlacement,
+	type FileCabinetFacing,
+} from "./fileCabinets.js";
+export {
 	canonicalEdgeKey,
 	generateMapLayout,
 	layoutOccupancy,

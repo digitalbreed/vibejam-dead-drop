@@ -1,5 +1,12 @@
 export { GameState, Player } from "./schema/GameState.js";
-export { InteractableState, DoorState, KeycardState, SuitcaseState, VaultState } from "./schema/Interactables.js";
+export {
+	type InteractableBaseFields,
+	DoorState,
+	KeycardState,
+	SuitcaseState,
+	VaultState,
+	FileCabinetState,
+} from "./schema/Interactables.js";
 export * from "./map/index.js";
 
 /** Match flow before/after the Colyseus room locks for a running round. */
@@ -44,6 +51,13 @@ export type GameServerMessages = {
 				id: string;
 				kind: "vault";
 				action: "unlocked" | "opened" | "completed";
+		  }
+		| {
+				id: string;
+				kind: "file_cabinet";
+				action: "drawer_searched";
+				drawerIndex: number;
+				bySessionId: string;
 		  };
 	interaction_feedback: {
 		kind: "error_beep";

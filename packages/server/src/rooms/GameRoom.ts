@@ -2,7 +2,9 @@ import { Room, Client } from "colyseus";
 import {
 	buildVaultCollisionWalls,
 	DoorState,
+	FileCabinetState,
 	GameState,
+	generateFileCabinetPlacements,
 	generateVaultPlacement,
 	KeycardState,
 	Player,
@@ -10,6 +12,7 @@ import {
 	VaultState,
 	buildClosedDoorWalls,
 	buildCollisionWalls,
+	buildFileCabinetCollisionWalls,
 	generateDoorPlacements,
 	generateKeycardPlacements,
 	generateMapLayout,
@@ -20,6 +23,7 @@ import {
 	type WallRect,
 } from "@vibejam/shared";
 import { DoorController } from "./interactables/DoorController.js";
+import { FileCabinetController } from "./interactables/FileCabinetController.js";
 import { KeycardController } from "./interactables/KeycardController.js";
 import { SuitcaseController } from "./interactables/SuitcaseController.js";
 import { VaultController } from "./interactables/VaultController.js";
@@ -62,6 +66,7 @@ export class GameRoom extends Room {
 	private keycardControllers = new Map<string, KeycardController>();
 	private suitcaseControllers = new Map<string, SuitcaseController>();
 	private vaultControllers = new Map<string, VaultController>();
+	private fileCabinetControllers = new Map<string, FileCabinetController>();
 	private interactionHold = new Map<string, boolean>();
 	maxClients = 16;
 
@@ -96,6 +101,7 @@ export class GameRoom extends Room {
 		this.staticWalls = [
 			...this.staticWalls,
 			...buildVaultCollisionWalls(Array.from(this.state.vaults.values(), (vault) => ({ x: vault.x, z: vault.z }))),
+			...buildFileCabinetCollisionWalls(generateFileCabinetPlacements(this.layout)),
 		];
 		this.setSimulationInterval((deltaTime) => this.tick(deltaTime), 1000 / 20);
 	}
@@ -138,6 +144,7 @@ export class GameRoom extends Room {
 		this.keycardControllers.clear();
 		this.suitcaseControllers.clear();
 		this.vaultControllers.clear();
+		this.fileCabinetControllers.clear();
 	}
 
 	private tryStartMatch() {
@@ -192,14 +199,17 @@ export class GameRoom extends Room {
 		this.state.keycards.clear();
 		this.state.suitcases.clear();
 		this.state.vaults.clear();
+		this.state.fileCabinets.clear();
 		this.doorControllers = [];
 		this.keycardControllers.clear();
 		this.suitcaseControllers.clear();
 		this.vaultControllers.clear();
+		this.fileCabinetControllers.clear();
 		this.createVaults();
 		this.createDoors();
 		this.createKeycards();
 		this.createSuitcases();
+		this.createFileCabinets();
 	}
 
 	private createVaults() {
@@ -281,6 +291,17 @@ export class GameRoom extends Room {
 		suitcase.containerId = vaultPlacement.id;
 		this.state.suitcases.set(suitcase.id, suitcase);
 		this.suitcaseControllers.set(suitcase.id, new SuitcaseController(suitcase));
+	}
+
+	private createFileCabinets() {
+		for (const placement of generateFileCabinetPlacements(this.layout)) {
+			const cabinet = new FileCabinetState();
+			cabinet.id = placement.id;
+			cabinet.kind = "file_cabinet";
+			cabinet.searchedMask = 0;
+			this.state.fileCabinets.set(cabinet.id, cabinet);
+			this.fileCabinetControllers.set(cabinet.id, new FileCabinetController(cabinet, placement));
+		}
 	}
 
 	private handleInteract(client: Client) {
@@ -440,9 +461,24 @@ export class GameRoom extends Room {
 
 	private findInteractionCandidate(
 		player: Player,
-	): { kind: "vault"; id: string; durationMs: number } | null {
-		let nearest: VaultController | null = null;
-		let nearestDistSq = Infinity;
+	): { kind: "vault" | "file_cabinet"; id: string; durationMs: number } | null {
+		let nearestCabinet: FileCabinetController | null = null;
+		let nearestCabinetDistSq = Infinity;
+		for (const controller of this.fileCabinetControllers.values()) {
+			if (!controller.canCompleteInteraction(player)) {
+				continue;
+			}
+			const dx = player.x - controller.placementSnapshot.x;
+			const dz = player.z - controller.placementSnapshot.z;
+			const distSq = dx * dx + dz * dz;
+			if (distSq < nearestCabinetDistSq) {
+				nearestCabinetDistSq = distSq;
+				nearestCabinet = controller;
+			}
+		}
+
+		let nearestVault: VaultController | null = null;
+		let nearestVaultDistSq = Infinity;
 		for (const controller of this.vaultControllers.values()) {
 			if (!controller.canCompleteInteraction(player)) {
 				continue;
@@ -450,15 +486,19 @@ export class GameRoom extends Room {
 			const dx = player.x - controller.vault.x;
 			const dz = player.z - controller.vault.z;
 			const distSq = dx * dx + dz * dz;
-			if (distSq < nearestDistSq) {
-				nearestDistSq = distSq;
-				nearest = controller;
+			if (distSq < nearestVaultDistSq) {
+				nearestVaultDistSq = distSq;
+				nearestVault = controller;
 			}
 		}
-		if (!nearest) {
+
+		if (!nearestCabinet && !nearestVault) {
 			return null;
 		}
-		return { kind: "vault", id: nearest.vault.id, durationMs: INTERACTION_DURATION_MS };
+		if (nearestCabinet && (!nearestVault || nearestCabinetDistSq <= nearestVaultDistSq)) {
+			return { kind: "file_cabinet", id: nearestCabinet.cabinet.id, durationMs: INTERACTION_DURATION_MS };
+		}
+		return { kind: "vault", id: nearestVault!.vault.id, durationMs: INTERACTION_DURATION_MS };
 	}
 
 	private tickInteractions(deltaMs: number) {
@@ -485,14 +525,25 @@ export class GameRoom extends Room {
 	}
 
 	private canContinueInteraction(player: Player): boolean {
-		if (player.interactionKind !== "vault") {
-			return false;
+		if (player.interactionKind === "vault") {
+			const controller = this.vaultControllers.get(player.interactionTargetId);
+			if (!controller) {
+				return false;
+			}
+			return controller.vault.isUnlocked && !controller.vault.isDoorOpen;
 		}
-		const controller = this.vaultControllers.get(player.interactionTargetId);
-		if (!controller) {
-			return false;
+		if (player.interactionKind === "file_cabinet") {
+			const controller = this.fileCabinetControllers.get(player.interactionTargetId);
+			if (!controller) {
+				return false;
+			}
+			return (
+				controller.hasUnsearchedDrawer() &&
+				controller.isInRange(player) &&
+				controller.isPlayerInFront(player)
+			);
 		}
-		return controller.vault.isUnlocked && !controller.vault.isDoorOpen;
+		return false;
 	}
 
 	private completeInteraction(sessionId: string, player: Player) {
@@ -505,6 +556,13 @@ export class GameRoom extends Room {
 				const suitcase = this.findPrimarySuitcase();
 				if (suitcase) {
 					const event = suitcase.forceCarry(sessionId);
+					this.broadcast("interactable_event", event);
+				}
+			}
+		} else if (player.interactionKind === "file_cabinet") {
+			const controller = this.fileCabinetControllers.get(player.interactionTargetId);
+			if (controller && controller.canCompleteInteraction(player)) {
+				for (const event of controller.completeInteraction(sessionId)) {
 					this.broadcast("interactable_event", event);
 				}
 			}

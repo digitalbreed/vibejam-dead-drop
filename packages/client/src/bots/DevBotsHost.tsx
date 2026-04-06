@@ -1,6 +1,12 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { GameState } from "@vibejam/shared";
-import { colyseusClient, RoomProvider, useRoom, useRoomState } from "../colyseus/roomContext";
+import {
+	colyseusClient,
+	prepareGameRoom,
+	RoomProvider,
+	useRoom,
+	useRoomState,
+} from "../colyseus/roomContext";
 import { schemaMapValues } from "../colyseus/schemaMap";
 import { GameScene } from "../game/GameScene";
 import {
@@ -113,14 +119,19 @@ function BotViewport({ slot }: { slot: number }) {
 function BotClientSlot({ roomId, slot }: { roomId: string; slot: number }) {
 	const connectBotRoom = useCallback(
 		() =>
-			colyseusClient.joinById(
-				roomId,
-				{
-					devBot: true,
-					botSlot: slot + 1,
-				},
-				GameState,
-			),
+			colyseusClient
+				.joinById(
+					roomId,
+					{
+						devBot: true,
+						botSlot: slot + 1,
+					},
+					GameState,
+				)
+				.then((room) => {
+					prepareGameRoom(room);
+					return room;
+				}),
 		[roomId, slot],
 	);
 

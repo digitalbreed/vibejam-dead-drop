@@ -1,5 +1,5 @@
 import { Schema, MapSchema, type } from "@colyseus/schema";
-import { DoorState, KeycardState, SuitcaseState, VaultState } from "./Interactables.js";
+import { DoorState, FileCabinetState, KeycardState, SuitcaseState, VaultState } from "./Interactables.js";
 
 export class Player extends Schema {
 	@type("number") x: number = 0;
@@ -24,4 +24,5 @@ export class GameState extends Schema {
 	@type({ map: KeycardState }) keycards = new MapSchema<KeycardState>();
 	@type({ map: SuitcaseState }) suitcases = new MapSchema<SuitcaseState>();
 	@type({ map: VaultState }) vaults = new MapSchema<VaultState>();
+	@type({ map: FileCabinetState }) fileCabinets = new MapSchema<FileCabinetState>();
 }

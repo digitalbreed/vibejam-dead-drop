@@ -1,6 +1,12 @@
 import { useCallback, useEffect, useMemo, useState, type ComponentType } from "react";
 import { GameState } from "@vibejam/shared";
-import { colyseusClient, RoomProvider, useRoom, useRoomState } from "./colyseus/roomContext";
+import {
+	colyseusClient,
+	prepareGameRoom,
+	RoomProvider,
+	useRoom,
+	useRoomState,
+} from "./colyseus/roomContext";
 import { TitleScreen } from "./screens/TitleScreen";
 import { LobbyScreen } from "./screens/LobbyScreen";
 import { GameScreen } from "./screens/GameScreen";
@@ -72,11 +78,10 @@ export default function App() {
 	);
 	const connectMainRoom = useCallback(
 		() =>
-			colyseusClient.joinOrCreate(
-				"game_room",
-				{ mapMaxDistance },
-				GameState,
-			),
+			colyseusClient.joinOrCreate("game_room", { mapMaxDistance }, GameState).then((room) => {
+				prepareGameRoom(room);
+				return room;
+			}),
 		[mapMaxDistance],
 	);
 

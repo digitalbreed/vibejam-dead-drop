@@ -1,8 +1,10 @@
-import type { GameServerMessages, InteractableState, Player } from "@vibejam/shared";
+import type { GameServerMessages, InteractableBaseFields, Player } from "@vibejam/shared";
 
 export type InteractableEvent = GameServerMessages["interactable_event"];
 
-export abstract class BaseInteractableController<TState extends InteractableState> {
+export type InteractableControllerState = InteractableBaseFields;
+
+export abstract class BaseInteractableController<TState extends InteractableControllerState> {
 	constructor(protected readonly state: TState) {}
 
 	abstract tick(players: Iterable<Player>, deltaMs: number): InteractableEvent[];
