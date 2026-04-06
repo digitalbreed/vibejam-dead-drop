@@ -397,11 +397,13 @@ function DoorItem({
 export function DoorLayer({
 	fogByCell,
 	revealAll,
+	audioEnabled = true,
 }: {
 	fogByCell: Map<string, FogState>;
 	revealAll: boolean;
+	audioEnabled?: boolean;
 }) {
-	useDoorAudio();
+	useDoorAudio(audioEnabled);
 	const { room } = useRoom();
 	const interactables = useRoomState((state) => state.interactables);
 	const mapSeed = useRoomState((state) => state.mapSeed);

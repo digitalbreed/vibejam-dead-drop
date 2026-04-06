@@ -18,6 +18,11 @@ import {
 import { useRoom, useRoomState } from "../colyseus/roomContext";
 import { schemaMapValues } from "../colyseus/schemaMap";
 import { DoorLayer } from "./doors/DoorLayer";
+import {
+	createWindowKeyboardInputSource,
+	type KeyboardInputSource,
+	type KeyboardLikeEvent,
+} from "./input/keyboardInput";
 import { KeycardLayer } from "./keycards/KeycardLayer";
 import { LightingLayer } from "./LightingLayer";
 import { MapLevel } from "./MapLevel";
@@ -538,7 +543,17 @@ function DebugOrbitCamera({ targetRef, enabled }: { targetRef: React.MutableRefO
 	return null;
 }
 
-function MovementInput({ inputRef, enabled }: { inputRef: React.MutableRefObject<Vector2>; enabled: boolean }) {
+const windowKeyboardInputSource = createWindowKeyboardInputSource();
+
+function MovementInput({
+	inputRef,
+	enabled,
+	inputSource,
+}: {
+	inputRef: React.MutableRefObject<Vector2>;
+	enabled: boolean;
+	inputSource?: KeyboardInputSource;
+}) {
 	const { room } = useRoom();
 	const keys = useRef({ KeyW: false, KeyA: false, KeyS: false, KeyD: false });
 	const holdRef = useRef<{
@@ -548,8 +563,10 @@ function MovementInput({ inputRef, enabled }: { inputRef: React.MutableRefObject
 		timerId: number | null;
 	}>({ pressed: false, holdSent: false, startMs: 0, timerId: null });
 
+	const source = inputSource ?? windowKeyboardInputSource;
+
 	useEffect(() => {
-		const onDown = (e: KeyboardEvent) => {
+		const onDown = (e: KeyboardLikeEvent) => {
 			if (!enabled) {
 				return;
 			}
@@ -573,7 +590,7 @@ function MovementInput({ inputRef, enabled }: { inputRef: React.MutableRefObject
 				keys.current[e.code as keyof typeof keys.current] = true;
 			}
 		};
-		const onUp = (e: KeyboardEvent) => {
+		const onUp = (e: KeyboardLikeEvent) => {
 			if (e.code === "KeyE" && room) {
 				const heldMs = performance.now() - holdRef.current.startMs;
 				holdRef.current.pressed = false;
@@ -595,13 +612,8 @@ function MovementInput({ inputRef, enabled }: { inputRef: React.MutableRefObject
 				keys.current[e.code as keyof typeof keys.current] = false;
 			}
 		};
-		window.addEventListener("keydown", onDown);
-		window.addEventListener("keyup", onUp);
-		return () => {
-			window.removeEventListener("keydown", onDown);
-			window.removeEventListener("keyup", onUp);
-		};
-	}, [enabled, room]);
+		return source.subscribe(onDown, onUp);
+	}, [enabled, room, source]);
 
 	useFrame(() => {
 		if (!room) {
@@ -657,10 +669,14 @@ function SceneContent({
 	onAreaChange,
 	revealAll,
 	debugCameraEnabled,
+	audioEnabled,
+	inputSource,
 }: {
 	onAreaChange?: (label: string) => void;
 	revealAll: boolean;
 	debugCameraEnabled: boolean;
+	audioEnabled: boolean;
+	inputSource?: KeyboardInputSource;
 }) {
 	const { room } = useRoom();
 	const players = useRoomState((s) => s.players);
@@ -677,6 +693,9 @@ function SceneContent({
 	const [visitedAreas, setVisitedAreas] = useState<Set<string>>(() => new Set(["Start Room"]));
 
 	useEffect(() => {
+		if (!audioEnabled) {
+			return;
+		}
 		if (!room) {
 			return;
 		}
@@ -704,7 +723,7 @@ function SceneContent({
 				void context.close();
 			}, 280);
 		});
-	}, [room]);
+	}, [audioEnabled, room]);
 
 	const layout = useMemo(() => {
 		return generateMapLayout(mapSeed ?? 0, mapMaxDistance ?? 12);
@@ -780,25 +799,23 @@ function SceneContent({
 			localVisualRef.current.x += dx * Math.min(1, dt * 10);
 			localVisualRef.current.z += dz * Math.min(1, dt * 10);
 		}
-		if (onAreaChange) {
-			const ix = Math.round(localVisualRef.current.x / CELL_SIZE);
-			const iz = Math.round(localVisualRef.current.z / CELL_SIZE);
-			const label = areaInfo.labelByCell.get(`${ix},${iz}`) ?? "Out of Bounds";
-			if (label !== lastAreaRef.current) {
-				lastAreaRef.current = label;
-				setCurrentArea(label);
-				setVisitedAreas((current) => {
-					if (current.has(label)) {
-						return current;
-					}
-					const next = new Set(current);
-					next.add(label);
-					return next;
-				});
-				onAreaChange(label);
-			}
+		const ix = Math.round(localVisualRef.current.x / CELL_SIZE);
+		const iz = Math.round(localVisualRef.current.z / CELL_SIZE);
+		const label = areaInfo.labelByCell.get(`${ix},${iz}`) ?? "Out of Bounds";
+		if (label !== lastAreaRef.current) {
+			lastAreaRef.current = label;
+			setCurrentArea(label);
+			setVisitedAreas((current) => {
+				if (current.has(label)) {
+					return current;
+				}
+				const next = new Set(current);
+				next.add(label);
+				return next;
+			});
+			onAreaChange?.(label);
 		}
-	});
+	}, -100);
 
 	const list = useMemo(() => {
 		if (!players) {
@@ -818,7 +835,7 @@ function SceneContent({
 			}
 			carriedSuitcaseBySessionId.add(suitcase.carrierSessionId);
 		}
-		return Object.entries(players).map(([id, p]) => ({
+		return Object.entries(players as Record<string, any>).map(([id, p]) => ({
 			id,
 			x: p.x,
 			z: p.z,
@@ -839,7 +856,7 @@ function SceneContent({
 		<>
 			<ThirdPersonCamera targetRef={localVisualRef} enabled={!debugCameraEnabled} />
 			<DebugOrbitCamera targetRef={localVisualRef} enabled={debugCameraEnabled} />
-			<MovementInput inputRef={inputRef} enabled={!debugCameraEnabled} />
+			<MovementInput inputRef={inputRef} enabled={!debugCameraEnabled} inputSource={inputSource} />
 			<ambientLight intensity={0.42} />
 			<LightingLayer layout={layout} areaInfo={areaInfo} currentArea={currentArea} fogByCell={fogByCell} />
 			<MapLevel
@@ -849,10 +866,10 @@ function SceneContent({
 				currentArea={currentArea}
 				playerPositionRef={localVisualRef}
 			/>
-			<DoorLayer fogByCell={fogByCell} revealAll={revealAll} />
-			<KeycardLayer fogByCell={fogByCell} revealAll={revealAll} />
-			<SuitcaseLayer fogByCell={fogByCell} revealAll={revealAll} />
-			<VaultLayer fogByCell={fogByCell} revealAll={revealAll} />
+			<DoorLayer fogByCell={fogByCell} revealAll={revealAll} audioEnabled={audioEnabled} />
+			<KeycardLayer fogByCell={fogByCell} revealAll={revealAll} audioEnabled={audioEnabled} />
+			<SuitcaseLayer fogByCell={fogByCell} revealAll={revealAll} audioEnabled={audioEnabled} />
+			<VaultLayer fogByCell={fogByCell} revealAll={revealAll} audioEnabled={audioEnabled} />
 			{list.map((p) =>
 				p.isLocal ? (
 					<PlayerVisual
@@ -888,15 +905,25 @@ export function GameScene({
 	onAreaChange,
 	revealAll,
 	debugCameraEnabled,
+	audioEnabled = true,
+	inputSource,
 }: {
 	onAreaChange?: (label: string) => void;
 	revealAll: boolean;
 	debugCameraEnabled: boolean;
+	audioEnabled?: boolean;
+	inputSource?: KeyboardInputSource;
 }) {
 	return (
 		<Canvas shadows camera={{ fov: 50, near: 0.1, far: 500 }} style={{ width: "100%", height: "100%" }}>
 			<color attach="background" args={["#0e141c"]} />
-			<SceneContent onAreaChange={onAreaChange} revealAll={revealAll} debugCameraEnabled={debugCameraEnabled} />
+			<SceneContent
+				onAreaChange={onAreaChange}
+				revealAll={revealAll}
+				debugCameraEnabled={debugCameraEnabled}
+				audioEnabled={audioEnabled}
+				inputSource={inputSource}
+			/>
 		</Canvas>
 	);
 }

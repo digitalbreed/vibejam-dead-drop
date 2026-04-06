@@ -33,11 +33,11 @@ function playKeycardChime(action: KeycardEvent["action"]) {
 	}, 450);
 }
 
-export function useKeycardAudio() {
+export function useKeycardAudio(enabled = true) {
 	const { room } = useRoom();
 
 	useEffect(() => {
-		if (!room) {
+		if (!enabled || !room) {
 			return;
 		}
 		return room.onMessage<GameServerMessages["interactable_event"]>("interactable_event", (message) => {
@@ -46,5 +46,5 @@ export function useKeycardAudio() {
 			}
 			playKeycardChime(message.action);
 		});
-	}, [room]);
+	}, [enabled, room]);
 }

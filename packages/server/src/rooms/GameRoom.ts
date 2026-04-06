@@ -25,7 +25,9 @@ import { SuitcaseController } from "./interactables/SuitcaseController.js";
 import { VaultController } from "./interactables/VaultController.js";
 
 /** Minimum players before the match starts (1 = solo dev; raise for real matchmaking). */
-const MIN_PLAYERS = Number(process.env.MIN_PLAYERS ?? 1);
+const MIN_PLAYERS = Number(
+	process.env.MIN_PLAYERS ?? (process.env.NODE_ENV === "production" ? 1 : 4),
+);
 
 const DEFAULT_MAP_MAX_DISTANCE = Number(process.env.MAP_MAX_DISTANCE ?? 12);
 const INTERACTION_DURATION_MS = 5000;
@@ -40,6 +42,15 @@ function colorForSession(sessionId: string): number {
 		hash = sessionId.charCodeAt(i) + ((hash << 5) - hash);
 	}
 	return PALETTE[Math.abs(hash) % PALETTE.length];
+}
+
+function pickUniqueColor(existingColors: Set<number>, sessionId: string): number {
+	for (const color of PALETTE) {
+		if (!existingColors.has(color)) {
+			return color;
+		}
+	}
+	return colorForSession(sessionId);
 }
 
 export class GameRoom extends Room {
@@ -94,7 +105,11 @@ export class GameRoom extends Room {
 		const spawn = spawnInCenterHub(this.state.mapSeed, client.sessionId);
 		player.x = spawn.x;
 		player.z = spawn.z;
-		player.color = colorForSession(client.sessionId);
+		const existingColors = new Set<number>();
+		for (const existing of this.state.players.values()) {
+			existingColors.add(existing.color);
+		}
+		player.color = pickUniqueColor(existingColors, client.sessionId);
 		this.state.players.set(client.sessionId, player);
 		this.tryStartMatch();
 	}

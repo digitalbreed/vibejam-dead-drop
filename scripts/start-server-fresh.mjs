@@ -1,8 +1,12 @@
 #!/usr/bin/env node
 import { execFile, spawn } from "node:child_process";
+import { readFile, rm, writeFile } from "node:fs/promises";
+import path from "node:path";
 import { promisify } from "node:util";
 
 const execFileAsync = promisify(execFile);
+const LOCK_PATH = path.resolve(process.cwd(), ".tmp-server-fresh.pid");
+const SERVER_CHILD_PID_PATH = path.resolve(process.cwd(), ".tmp-server-child.pid");
 
 function parseArgs(argv) {
 	const args = { port: 2567, dryRun: false };
@@ -80,6 +84,20 @@ async function stopPid(pid) {
 	if (!isAlive(pid)) {
 		return;
 	}
+	if (process.platform === "win32") {
+		try {
+			await execFileAsync("taskkill", ["/PID", String(pid), "/T", "/F"]);
+		} catch {
+			// ignore
+		}
+		for (let i = 0; i < 20; i++) {
+			if (!isAlive(pid)) {
+				return;
+			}
+			await sleep(100);
+		}
+		return;
+	}
 	try {
 		process.kill(pid, "SIGTERM");
 	} catch {
@@ -98,6 +116,54 @@ async function stopPid(pid) {
 			// ignore
 		}
 	}
+}
+
+async function releaseLock() {
+	try {
+		const content = (await readFile(LOCK_PATH, "utf8")).trim();
+		if (Number(content) === process.pid) {
+			await rm(LOCK_PATH, { force: true });
+		}
+	} catch {
+		// ignore
+	}
+}
+
+async function acquireSingleInstanceLock() {
+	try {
+		const existing = (await readFile(LOCK_PATH, "utf8")).trim();
+		const existingPid = Number(existing);
+		if (Number.isInteger(existingPid) && existingPid > 0 && existingPid !== process.pid && isAlive(existingPid)) {
+			console.log(`[single-instance] stopping previous launcher pid=${existingPid}`);
+			await stopPid(existingPid);
+		}
+	} catch {
+		// lock file may not exist
+	}
+	await writeFile(LOCK_PATH, `${process.pid}\n`, "utf8");
+	process.once("exit", () => {
+		void releaseLock();
+	});
+	process.once("SIGINT", () => {
+		void releaseLock().finally(() => process.exit(130));
+	});
+	process.once("SIGTERM", () => {
+		void releaseLock().finally(() => process.exit(143));
+	});
+}
+
+async function killPreviousServerChildIfAny() {
+	try {
+		const content = (await readFile(SERVER_CHILD_PID_PATH, "utf8")).trim();
+		const pid = Number(content);
+		if (Number.isInteger(pid) && pid > 0 && pid !== process.pid && isAlive(pid)) {
+			console.log(`[server-child] stopping previous server child pid=${pid}`);
+			await stopPid(pid);
+		}
+	} catch {
+		// no previous child pid file
+	}
+	await rm(SERVER_CHILD_PID_PATH, { force: true });
 }
 
 async function freePort(port) {
@@ -129,10 +195,17 @@ async function freePort(port) {
 
 function startServer() {
 	console.log("[server-start] launching @vibejam/server");
-	const child = execFile(process.platform === "win32" ? "npm.cmd" : "npm", ["run", "start", "-w", "packages/server"], {
+	if (!process.env.MIN_PLAYERS) {
+		process.env.MIN_PLAYERS = "4";
+	}
+	const child = spawn("npm", ["run", "start", "-w", "packages/server"], {
 		stdio: "inherit",
+		shell: process.platform === "win32",
+		env: process.env,
 	});
+	void writeFile(SERVER_CHILD_PID_PATH, `${child.pid ?? 0}\n`, "utf8");
 	child.on("exit", (code, signal) => {
+		void rm(SERVER_CHILD_PID_PATH, { force: true });
 		if (signal) {
 			process.kill(process.pid, signal);
 			return;
@@ -167,12 +240,16 @@ async function runNpm(args, label) {
 
 async function main() {
 	const args = parseArgs(process.argv.slice(2));
+	await acquireSingleInstanceLock();
+	await killPreviousServerChildIfAny();
 	await freePort(args.port);
 	await runNpm(["run", "build", "-w", "packages/shared"], "shared-build");
 	if (args.dryRun) {
 		console.log("[server-start] dry-run complete");
+		await releaseLock();
 		return;
 	}
+	await freePort(args.port);
 	startServer();
 }
 

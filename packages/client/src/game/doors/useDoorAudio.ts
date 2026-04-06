@@ -26,11 +26,11 @@ function playDoorTone(action: DoorEvent["action"]) {
 	});
 }
 
-export function useDoorAudio() {
+export function useDoorAudio(enabled = true) {
 	const { room } = useRoom();
 
 	useEffect(() => {
-		if (!room) {
+		if (!enabled || !room) {
 			return;
 		}
 		return room.onMessage<GameServerMessages["interactable_event"]>("interactable_event", (message) => {
@@ -39,5 +39,5 @@ export function useDoorAudio() {
 			}
 			playDoorTone(message.action);
 		});
-	}, [room]);
+	}, [enabled, room]);
 }

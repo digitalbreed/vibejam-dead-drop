@@ -45,11 +45,13 @@ function GroundSuitcase({ suitcase, visible }: { suitcase: SuitcaseState; visibl
 export function SuitcaseLayer({
 	fogByCell,
 	revealAll,
+	audioEnabled = true,
 }: {
 	fogByCell: Map<string, FogState>;
 	revealAll: boolean;
+	audioEnabled?: boolean;
 }) {
-	useSuitcaseAudio();
+	useSuitcaseAudio(audioEnabled);
 	const suitcaseState = useRoomState((state) => state.suitcases);
 	const suitcases = useMemo(() => schemaMapValues<SuitcaseState>(suitcaseState), [suitcaseState]);
 

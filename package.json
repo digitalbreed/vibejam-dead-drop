@@ -5,7 +5,8 @@
 		"packages/*"
 	],
 	"scripts": {
-		"dev": "concurrently -n shared,server,client -c yellow,blue,green \"npm run dev -w packages/shared\" \"npm run start:server:fresh\" \"npm run dev -w packages/client\"",
+		"dev": "npm run dev:clean && concurrently -n shared,server,client -c yellow,blue,green \"npm run dev -w packages/shared\" \"npm run start:server:fresh\" \"npm run dev -w packages/client\"",
+		"dev:clean": "node ./scripts/kill-stale-dev.mjs",
 		"build": "npm run build -w packages/shared && npm run build -w packages/server && npm run build -w packages/client",
 		"start:server": "npm run start -w packages/server",
 		"start:server:fresh": "node ./scripts/start-server-fresh.mjs --port 2567",

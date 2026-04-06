@@ -71,11 +71,13 @@ function GroundKeycard({ card, visible }: { card: KeycardState; visible: boolean
 export function KeycardLayer({
 	fogByCell,
 	revealAll,
+	audioEnabled = true,
 }: {
 	fogByCell: Map<string, FogState>;
 	revealAll: boolean;
+	audioEnabled?: boolean;
 }) {
-	useKeycardAudio();
+	useKeycardAudio(audioEnabled);
 	const keycardsState = useRoomState((state) => state.keycards);
 
 	const keycards = useMemo(

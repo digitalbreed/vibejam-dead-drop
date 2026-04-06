@@ -1,9 +1,10 @@
 import { useRoomState } from "../colyseus/roomContext";
+import { schemaMapValues } from "../colyseus/schemaMap";
 
-const minDisplay = Number(import.meta.env.VITE_MIN_PLAYERS ?? 1);
+const minDisplay = Number(import.meta.env.VITE_MIN_PLAYERS ?? (import.meta.env.DEV ? 4 : 1));
 
 export function LobbyScreen() {
-	const count = useRoomState((s) => Object.keys(s.players).length);
+	const count = useRoomState((s) => schemaMapValues(s.players).length);
 	const phase = useRoomState((s) => s.phase);
 
 	if (phase !== "lobby") {

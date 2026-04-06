@@ -33,11 +33,11 @@ function playSuitcaseChime(action: SuitcaseEvent["action"]) {
 	}, 1200);
 }
 
-export function useSuitcaseAudio() {
+export function useSuitcaseAudio(enabled = true) {
 	const { room } = useRoom();
 
 	useEffect(() => {
-		if (!room) {
+		if (!enabled || !room) {
 			return;
 		}
 		return room.onMessage<GameServerMessages["interactable_event"]>("interactable_event", (message) => {
@@ -46,5 +46,5 @@ export function useSuitcaseAudio() {
 			}
 			playSuitcaseChime(message.action);
 		});
-	}, [room]);
+	}, [enabled, room]);
 }

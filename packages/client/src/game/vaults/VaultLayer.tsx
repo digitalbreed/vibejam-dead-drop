@@ -429,11 +429,13 @@ function VaultItem({
 export function VaultLayer({
 	fogByCell: _fogByCell,
 	revealAll: _revealAll,
+	audioEnabled = true,
 }: {
 	fogByCell: Map<string, "hidden" | "explored" | "visible">;
 	revealAll: boolean;
+	audioEnabled?: boolean;
 }) {
-	useVaultAudio();
+	useVaultAudio(audioEnabled);
 	const { room } = useRoom();
 	const vaultState = useRoomState((state) => state.vaults);
 	const [fx, setFx] = useState<VaultFxState>({

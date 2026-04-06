@@ -38,11 +38,11 @@ function playVaultTone(event: VaultEvent) {
 	}, event.action === "completed" ? 1300 : 550);
 }
 
-export function useVaultAudio() {
+export function useVaultAudio(enabled = true) {
 	const { room } = useRoom();
 
 	useEffect(() => {
-		if (!room) {
+		if (!enabled || !room) {
 			return;
 		}
 		return room.onMessage<GameServerMessages["interactable_event"]>("interactable_event", (message) => {
@@ -51,5 +51,5 @@ export function useVaultAudio() {
 			}
 			playVaultTone(message);
 		});
-	}, [room]);
+	}, [enabled, room]);
 }
