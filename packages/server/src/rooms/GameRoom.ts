@@ -17,6 +17,7 @@ import {
 	generateKeycardPlacements,
 	generateMapLayout,
 	moveWithCollision,
+	type GameTeam,
 	spawnInCenterHub,
 	type GameClientMessages,
 	type MapLayout,
@@ -55,6 +56,23 @@ function pickUniqueColor(existingColors: Set<number>, sessionId: string): number
 		}
 	}
 	return colorForSession(sessionId);
+}
+
+function shuffleInPlace<T>(list: T[]): void {
+	for (let i = list.length - 1; i > 0; i--) {
+		const j = Math.floor(Math.random() * (i + 1));
+		const temp = list[i]!;
+		list[i] = list[j]!;
+		list[j] = temp;
+	}
+}
+
+function computeEnforcerCount(playerCount: number): number {
+	if (playerCount <= 1) {
+		return 1;
+	}
+	const ratioRounded = Math.round(playerCount / 5);
+	return Math.min(playerCount - 1, Math.max(1, ratioRounded));
 }
 
 export class GameRoom extends Room {
@@ -154,8 +172,31 @@ export class GameRoom extends Room {
 		if (this.clients.length < MIN_PLAYERS) {
 			return;
 		}
+		const assignments = this.assignTeams();
+		this.sendRoleAssignments(assignments);
 		this.state.phase = "playing";
 		this.lock();
+	}
+
+	private assignTeams(): Map<string, GameTeam> {
+		const sessionIds = Array.from(this.state.players.keys());
+		shuffleInPlace(sessionIds);
+		const enforcerCount = computeEnforcerCount(sessionIds.length);
+		const assignments = new Map<string, GameTeam>();
+		for (let i = 0; i < sessionIds.length; i++) {
+			assignments.set(sessionIds[i]!, i < enforcerCount ? "enforcers" : "shredders");
+		}
+		return assignments;
+	}
+
+	private sendRoleAssignments(assignments: ReadonlyMap<string, GameTeam>): void {
+		for (const client of this.clients) {
+			const team = assignments.get(client.sessionId);
+			if (!team) {
+				continue;
+			}
+			client.send("role_assignment", { team });
+		}
 	}
 
 	private tick(deltaMs: number) {

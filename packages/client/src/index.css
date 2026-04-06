@@ -1,3 +1,5 @@
+@import url("https://fonts.googleapis.com/css2?family=Bebas+Neue&display=swap");
+
 *,
 *::before,
 *::after {
@@ -20,4 +22,65 @@ body {
 button {
 	font: inherit;
 	cursor: pointer;
+}
+
+.title-paper-feed {
+	width: 100%;
+	height: 100%;
+	border: 1px solid rgba(186, 208, 225, 0.52);
+	background: linear-gradient(180deg, #e8edf2 0%, #cad4dd 100%);
+	box-shadow:
+		0 8px 14px rgba(0, 0, 0, 0.35),
+		0 0 0 1px rgba(38, 57, 73, 0.35) inset;
+	animation: title-paper-feed 2.7s linear infinite;
+}
+
+.title-paper-shred-particle {
+	position: absolute;
+	top: 0;
+	display: block;
+	width: 0.74rem;
+	height: var(--shred-height, 4rem);
+	border-radius: 1px;
+	background: linear-gradient(180deg, #e2e8ee 0%, #b8c5d2 100%);
+	box-shadow: 0 5px 8px rgba(0, 0, 0, 0.32);
+	animation: title-paper-shred-particle-fall linear forwards;
+}
+
+@keyframes title-paper-feed {
+	0% {
+		transform: translateY(0);
+		opacity: 0;
+	}
+	14% {
+		transform: translateY(0);
+		opacity: 1;
+	}
+	58% {
+		transform: translateY(0.6rem);
+		opacity: 1;
+	}
+	92% {
+		transform: translateY(13.2rem);
+		opacity: 1;
+	}
+	100% {
+		transform: translateY(13.2rem);
+		opacity: 1;
+	}
+}
+
+@keyframes title-paper-shred-particle-fall {
+	0% {
+		transform: translate(0, 0) rotate(0deg) scaleX(1);
+		opacity: 0.96;
+	}
+	82% {
+		opacity: 0.92;
+	}
+	100% {
+		transform: translate(var(--shred-drift, 0rem), var(--shred-fall, 18rem)) rotate(var(--shred-rot, 10deg))
+			scaleX(0.94);
+		opacity: 0;
+	}
 }

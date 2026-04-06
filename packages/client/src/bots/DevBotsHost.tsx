@@ -1,7 +1,8 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { GameState } from "@vibejam/shared";
+import { GameState, type GameTeam } from "@vibejam/shared";
 import {
 	colyseusClient,
+	getLatestRoleAssignment,
 	prepareGameRoom,
 	RoomProvider,
 	useRoom,
@@ -73,8 +74,40 @@ function useWanderBotInput(inputSource: KeyboardInputSource & { emitDown: (event
 function BotViewport({ slot }: { slot: number }) {
 	const { room, isConnecting, error } = useRoom();
 	const phase = useRoomState((state) => state.phase);
+	const [team, setTeam] = useState<GameTeam | null>(null);
 	const inputSource = useMemo(() => createVirtualKeyboardInputSource(), []);
 	useWanderBotInput(inputSource, !!room && !isConnecting && !error);
+
+	useEffect(() => {
+		const cached = getLatestRoleAssignment(room);
+		if (cached) {
+			setTeam(cached.team);
+		}
+	}, [room]);
+
+	useEffect(() => {
+		if (!room) {
+			return;
+		}
+		return room.onMessage("role_assignment", (message: { team: GameTeam }) => {
+			setTeam(message.team);
+		});
+	}, [room]);
+
+	useEffect(() => {
+		if (phase !== "lobby") {
+			return;
+		}
+		setTeam(null);
+	}, [phase]);
+
+	const roleLabel = team === "enforcers" ? "Enforcer" : team === "shredders" ? "Shredder" : null;
+	const statusText =
+		phase === "lobby"
+			? `Bot ${slot + 1} waiting`
+			: roleLabel
+				? `Bot ${slot + 1} (${roleLabel}) active`
+				: `Bot ${slot + 1} active`;
 
 	return (
 		<div style={{ position: "relative", width: "100%", height: "100%" }}>
@@ -91,7 +124,7 @@ function BotViewport({ slot }: { slot: number }) {
 					border: "1px solid rgba(100, 130, 175, 0.38)",
 				}}
 			>
-				Bot {slot + 1} {phase === "lobby" ? "waiting" : "active"}
+				{statusText}
 			</div>
 			{error ? (
 				<div

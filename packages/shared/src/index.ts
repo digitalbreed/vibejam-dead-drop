@@ -11,6 +11,7 @@ export * from "./map/index.js";
 
 /** Match flow before/after the Colyseus room locks for a running round. */
 export type GamePhase = "lobby" | "playing";
+export type GameTeam = "shredders" | "enforcers";
 
 /** Client -> server messages for `GameRoom`. */
 export type GameClientMessages = {
@@ -21,6 +22,9 @@ export type GameClientMessages = {
 
 /** Server -> client transient gameplay events. */
 export type GameServerMessages = {
+	role_assignment: {
+		team: GameTeam;
+	};
 	interactable_event:
 		| {
 				id: string;

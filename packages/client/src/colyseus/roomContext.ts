@@ -4,10 +4,18 @@ import {
 	useRoom as useColyseusRoom,
 	useRoomState as useColyseusRoomState,
 } from "@colyseus/react";
-import type { GameState } from "@vibejam/shared";
+import type { GameState, GameTeam } from "@vibejam/shared";
 
 const url = import.meta.env.VITE_COLYSEUS_URL ?? "http://localhost:2567";
 export const colyseusClient = new Client(url);
+
+export type RoleAssignmentMessage = {
+	team: GameTeam;
+};
+
+type TrackedRoom = Room<any, GameState> & {
+	__latestRoleAssignment?: RoleAssignmentMessage;
+};
 
 /**
  * Attach handlers synchronously when the room is created, before React's `useEffect` subscribers run.
@@ -16,8 +24,19 @@ export const colyseusClient = new Client(url);
  * Real logic still registers additional listeners via `onMessage` (nanoevents stacks callbacks).
  */
 export function prepareGameRoom(room: Room<any, GameState>): void {
+	const trackedRoom = room as TrackedRoom;
+	trackedRoom.__latestRoleAssignment = undefined;
+	room.onMessage("role_assignment", (message: RoleAssignmentMessage) => {
+		trackedRoom.__latestRoleAssignment = message;
+	});
 	room.onMessage("interactable_event", () => {});
 	room.onMessage("interaction_feedback", () => {});
+}
+
+export function getLatestRoleAssignment(
+	room: Room<any, GameState> | undefined,
+): RoleAssignmentMessage | undefined {
+	return (room as TrackedRoom | undefined)?.__latestRoleAssignment;
 }
 
 type RoomConnect = (() => Promise<Room<any, GameState>>) | null | undefined;
