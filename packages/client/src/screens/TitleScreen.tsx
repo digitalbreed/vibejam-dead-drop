@@ -89,7 +89,24 @@ export function TitleScreen({ onJoin }: TitleScreenProps) {
 						zIndex: 0,
 					}}
 				>
-					<div className="title-paper-feed" />
+					<div className="title-paper-feed">
+						<div className="title-paper-lines">
+							{Array.from({ length: 14 }, (_, i) => (
+								<div key={`paper-line-${i}`} className="title-paper-line-row">
+									{Array.from({ length: 4 + (i % 4) }, (_, j) => {
+										const widthRem = 1.6 + (((i * 17 + j * 29) % 11) / 10) * 2.7;
+										return (
+											<span
+												key={`paper-line-${i}-word-${j}`}
+												className="title-paper-word"
+												style={{ width: `${widthRem.toFixed(2)}rem` }}
+											/>
+										);
+									})}
+								</div>
+							))}
+						</div>
+					</div>
 				</div>
 				<div
 					style={{

@@ -25,6 +25,8 @@ button {
 }
 
 .title-paper-feed {
+	position: relative;
+	overflow: hidden;
 	width: 100%;
 	height: 100%;
 	border: 1px solid rgba(186, 208, 225, 0.52);
@@ -33,6 +35,27 @@ button {
 		0 8px 14px rgba(0, 0, 0, 0.35),
 		0 0 0 1px rgba(38, 57, 73, 0.35) inset;
 	animation: title-paper-feed 2.7s linear infinite;
+}
+
+.title-paper-lines {
+	position: absolute;
+	inset: 0.8rem 0.9rem 0.85rem;
+	display: flex;
+	flex-direction: column;
+	gap: 0.52rem;
+}
+
+.title-paper-line-row {
+	display: flex;
+	align-items: center;
+	gap: 0.34rem;
+}
+
+.title-paper-word {
+	display: block;
+	height: 0.4rem;
+	border-radius: 0;
+	background: rgba(96, 112, 128, 0.38);
 }
 
 .title-paper-shred-particle {
