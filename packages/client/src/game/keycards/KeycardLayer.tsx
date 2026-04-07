@@ -6,6 +6,7 @@ import { useRoomState } from "../../colyseus/roomContext";
 import { schemaMapValues } from "../../colyseus/schemaMap";
 import type { FogState } from "../GameScene";
 import { useKeycardAudio } from "./useKeycardAudio";
+import { OutlinedMesh } from "../toonOutline/OutlinedMesh";
 
 type KeycardColor = "blue" | "red";
 
@@ -25,6 +26,7 @@ function KeycardMesh({
 	color,
 	bobSeed,
 	animated,
+	outlined,
 }: {
 	x: number;
 	y: number;
@@ -32,6 +34,7 @@ function KeycardMesh({
 	color: string;
 	bobSeed: number;
 	animated: boolean;
+	outlined: boolean;
 }) {
 	const groupRef = useRef<Group>(null);
 
@@ -46,36 +49,49 @@ function KeycardMesh({
 
 	return (
 		<group ref={groupRef} position={[x, y, z]}>
-			<mesh castShadow receiveShadow>
-				<boxGeometry args={[0.62, 0.06, 0.38]} />
-				<meshToonMaterial color={new Color(color)} emissive={new Color(color)} emissiveIntensity={0.45} />
-			</mesh>
-			<mesh position={[0, 0.036, 0]} castShadow receiveShadow>
-				<boxGeometry args={[0.22, 0.016, 0.26]} />
-				<meshToonMaterial color="#f4f6fa" />
-			</mesh>
+			<OutlinedMesh
+				castShadow
+				receiveShadow
+				outlined={outlined}
+				geometryNode={<boxGeometry args={[0.62, 0.06, 0.38]} />}
+				materialNode={<meshToonMaterial color={new Color(color)} emissive={new Color(color)} emissiveIntensity={0.45} />}
+			/>
+			<OutlinedMesh
+				position={[0, 0.036, 0]}
+				castShadow
+				receiveShadow
+				outlined={outlined}
+				geometryNode={<boxGeometry args={[0.22, 0.016, 0.26]} />}
+				materialNode={<meshToonMaterial color="#f4f6fa" />}
+			/>
 		</group>
 	);
 }
 
-function GroundKeycard({ card, visible }: { card: KeycardState; visible: boolean }) {
+function GroundKeycard({ card, visible, outlined }: { card: KeycardState; visible: boolean; outlined: boolean }) {
 	if (!visible) {
 		return null;
 	}
 	const color = card.color === "red" ? COLOR_BY_KEYCARD.red : COLOR_BY_KEYCARD.blue;
 	const keyId = card.keyId || card.id || "keycard";
 	const bobSeed = useMemo(() => (keyId.length % 7) * 0.6, [keyId]);
-	return <KeycardMesh x={card.worldX} y={0.11} z={card.worldZ} color={color} bobSeed={bobSeed} animated />;
+	return <KeycardMesh x={card.worldX} y={0.11} z={card.worldZ} color={color} bobSeed={bobSeed} animated outlined={outlined} />;
 }
 
 export function KeycardLayer({
 	fogByCell,
 	revealAll,
+	areaInfo,
+	currentArea,
 	audioEnabled = true,
+	outlinesEnabled = true,
 }: {
 	fogByCell: Map<string, FogState>;
 	revealAll: boolean;
+	areaInfo: { labelByCell: Map<string, string> };
+	currentArea: string;
 	audioEnabled?: boolean;
+	outlinesEnabled?: boolean;
 }) {
 	useKeycardAudio(audioEnabled);
 	const keycardsState = useRoomState((state) => state.keycards);
@@ -93,7 +109,9 @@ export function KeycardLayer({
 					return null;
 				}
 				const visible = revealAll || fogAtPosition(fogByCell, card.worldX, card.worldZ) !== "hidden";
-				return <GroundKeycard key={renderKey} card={card} visible={visible} />;
+				const cellKey = `${Math.round(card.worldX / CELL_SIZE)},${Math.round(card.worldZ / CELL_SIZE)}`;
+				const outlined = outlinesEnabled && !revealAll && areaInfo.labelByCell.get(cellKey) === currentArea;
+				return <GroundKeycard key={renderKey} card={card} visible={visible} outlined={outlined} />;
 			})}
 		</group>
 	);

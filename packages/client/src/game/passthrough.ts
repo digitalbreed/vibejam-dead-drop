@@ -1,6 +1,6 @@
 import { useEffect } from "react";
 import { useFrame } from "@react-three/fiber";
-import { MeshToonMaterial, Vector2 } from "three";
+import { MeshBasicMaterial, MeshToonMaterial, Vector2 } from "three";
 
 export type PassthroughState = {
 	center: Vector2;
@@ -14,7 +14,7 @@ type ShaderWithUniforms = {
 	uniforms: Record<string, { value: unknown }>;
 };
 
-type PassthroughMaterial = MeshToonMaterial;
+type PassthroughMaterial = MeshToonMaterial | MeshBasicMaterial;
 
 function ensurePassthrough(material: PassthroughMaterial) {
 	if (material.userData.passthroughInitialized) {
@@ -44,9 +44,7 @@ function ensurePassthrough(material: PassthroughMaterial) {
 				void main() {
 			`,
 		);
-		shader.fragmentShader = shader.fragmentShader.replace(
-			"#include <dithering_fragment>",
-			`
+		const passthroughSnippet = `
 				vec2 passUv = gl_FragCoord.xy / uPassResolution;
 				vec2 passDelta = passUv - uPassCenter;
 				passDelta.x *= uPassResolution.x / uPassResolution.y;
@@ -55,9 +53,25 @@ function ensurePassthrough(material: PassthroughMaterial) {
 				float passMask = 1.0 - smoothstep(uPassRadius, uPassRadius + uPassSoftness, passDist);
 				diffuseColor.a *= 1.0 - uPassEnabled * passMask * uPassStrength;
 				if (uPassEnabled > 0.5 && diffuseColor.a < 0.02) discard;
+		`;
+		// Most built-in materials include <dithering_fragment>; use it as the insertion anchor when possible.
+		if (shader.fragmentShader.includes("#include <dithering_fragment>")) {
+			shader.fragmentShader = shader.fragmentShader.replace(
+				"#include <dithering_fragment>",
+				`
+				${passthroughSnippet}
 				#include <dithering_fragment>
 			`,
-		);
+			);
+		} else {
+			// Fallback: inject just before the final color write.
+			shader.fragmentShader = shader.fragmentShader.replace(
+				/gl_FragColor\s*=/,
+				`
+				${passthroughSnippet}
+				gl_FragColor =`,
+			);
+		}
 		material.userData.passthroughShader = shader;
 	};
 	material.userData.passthroughInitialized = true;

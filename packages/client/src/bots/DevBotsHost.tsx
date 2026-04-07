@@ -144,7 +144,7 @@ function BotViewport({ slot }: { slot: number }) {
 					{error.message}
 				</div>
 			) : null}
-			<GameScene revealAll={false} debugCameraEnabled={false} audioEnabled={false} inputSource={inputSource} />
+			<GameScene revealAll={false} debugCameraEnabled={false} audioEnabled={false} inputSource={inputSource} outlinesEnabled={false} />
 		</div>
 	);
 }

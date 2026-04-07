@@ -6,6 +6,7 @@ import { Group, MathUtils, MeshToonMaterial, PointLight } from "three";
 import { useRoom, useRoomState } from "../../colyseus/roomContext";
 import { schemaMapValues } from "../../colyseus/schemaMap";
 import { useVaultAudio } from "./useVaultAudio";
+import { OutlinedMesh } from "../toonOutline/OutlinedMesh";
 
 const FRONT_FACE_Z = CELL_SIZE / 2;
 const PANEL_THICKNESS = 0.22;
@@ -63,6 +64,7 @@ function VaultDoor({
 	insertedRed,
 	bluePulseStartSec,
 	redPulseStartSec,
+	outlined,
 }: {
 	hingeSide: "left" | "right";
 	openT: number;
@@ -70,6 +72,7 @@ function VaultDoor({
 	insertedRed: boolean;
 	bluePulseStartSec: number;
 	redPulseStartSec: number;
+	outlined: boolean;
 }) {
 	const pivotRef = useRef<Group>(null);
 	const hingeX = hingeSide === "left" ? -DOOR_RADIUS : DOOR_RADIUS;
@@ -88,38 +91,75 @@ function VaultDoor({
 	return (
 		<group ref={pivotRef} position={[hingeX, DOOR_CENTER_Y, DOOR_CENTER_Z]}>
 			<group position={[doorOffsetX, 0, 0]}>
-				<mesh castShadow receiveShadow rotation={[Math.PI / 2, 0, 0]}>
-					<cylinderGeometry args={[DOOR_RADIUS, DOOR_RADIUS, DOOR_THICKNESS, 40]} />
-					<meshToonMaterial color="#9099a3" />
-				</mesh>
-				<mesh position={[0, 0, DOOR_MID_CENTER_Z]} castShadow receiveShadow rotation={[Math.PI / 2, 0, 0]}>
-					<cylinderGeometry args={[DOOR_MID_RADIUS, DOOR_MID_RADIUS, DOOR_MID_THICKNESS, 40]} />
-					<meshToonMaterial color="#858e97" />
-				</mesh>
-				<mesh position={[0, 0, DOOR_INNER_CENTER_Z]} castShadow receiveShadow rotation={[Math.PI / 2, 0, 0]}>
-					<cylinderGeometry args={[DOOR_INNER_RADIUS, DOOR_INNER_RADIUS, DOOR_INNER_THICKNESS, 36]} />
-					<meshToonMaterial color="#7a838d" />
-				</mesh>
-				<mesh position={[0, 0, LOCK_HUB_Z]} castShadow receiveShadow rotation={[Math.PI / 2, 0, 0]}>
-					<cylinderGeometry args={[0.08, 0.08, 0.15, 18]} />
-					<meshToonMaterial color="#6f7780" />
-				</mesh>
-				<mesh position={[0, 0, LOCK_HUB_Z]} castShadow receiveShadow>
-					<cylinderGeometry args={[0.018, 0.018, 0.46, 12]} />
-					<meshToonMaterial color="#757f89" />
-				</mesh>
-				<mesh position={[0, 0, LOCK_HUB_Z]} castShadow receiveShadow rotation={[0, 0, Math.PI / 2]}>
-					<cylinderGeometry args={[0.018, 0.018, 0.46, 12]} />
-					<meshToonMaterial color="#757f89" />
-				</mesh>
-				<mesh position={[0, 0, LOCK_HUB_Z]} castShadow receiveShadow rotation={[0, 0, Math.PI / 4]}>
-					<cylinderGeometry args={[0.018, 0.018, 0.46, 12]} />
-					<meshToonMaterial color="#757f89" />
-				</mesh>
-				<mesh position={[hingeEdgeX, 0, DOOR_THICKNESS / 2 - 0.02]} castShadow receiveShadow>
-					<boxGeometry args={[DOOR_HINGE_BLOCK_WIDTH, DOOR_HINGE_BLOCK_HEIGHT, DOOR_HINGE_BLOCK_DEPTH]} />
-					<meshToonMaterial color="#6a737d" />
-				</mesh>
+				<OutlinedMesh
+					castShadow
+					receiveShadow
+					outlined={outlined}
+					rotation={[Math.PI / 2, 0, 0]}
+					geometryNode={<cylinderGeometry args={[DOOR_RADIUS, DOOR_RADIUS, DOOR_THICKNESS, 40]} />}
+					materialNode={<meshToonMaterial color="#9099a3" />}
+				/>
+				<OutlinedMesh
+					position={[0, 0, DOOR_MID_CENTER_Z]}
+					castShadow
+					receiveShadow
+					outlined={outlined}
+					rotation={[Math.PI / 2, 0, 0]}
+					geometryNode={<cylinderGeometry args={[DOOR_MID_RADIUS, DOOR_MID_RADIUS, DOOR_MID_THICKNESS, 40]} />}
+					materialNode={<meshToonMaterial color="#858e97" />}
+				/>
+				<OutlinedMesh
+					position={[0, 0, DOOR_INNER_CENTER_Z]}
+					castShadow
+					receiveShadow
+					outlined={outlined}
+					rotation={[Math.PI / 2, 0, 0]}
+					geometryNode={<cylinderGeometry args={[DOOR_INNER_RADIUS, DOOR_INNER_RADIUS, DOOR_INNER_THICKNESS, 36]} />}
+					materialNode={<meshToonMaterial color="#7a838d" />}
+				/>
+				<OutlinedMesh
+					position={[0, 0, LOCK_HUB_Z]}
+					castShadow
+					receiveShadow
+					outlined={outlined}
+					rotation={[Math.PI / 2, 0, 0]}
+					geometryNode={<cylinderGeometry args={[0.08, 0.08, 0.15, 18]} />}
+					materialNode={<meshToonMaterial color="#6f7780" />}
+				/>
+				<OutlinedMesh
+					position={[0, 0, LOCK_HUB_Z]}
+					castShadow
+					receiveShadow
+					outlined={outlined}
+					geometryNode={<cylinderGeometry args={[0.018, 0.018, 0.46, 12]} />}
+					materialNode={<meshToonMaterial color="#757f89" />}
+				/>
+				<OutlinedMesh
+					position={[0, 0, LOCK_HUB_Z]}
+					castShadow
+					receiveShadow
+					outlined={outlined}
+					rotation={[0, 0, Math.PI / 2]}
+					geometryNode={<cylinderGeometry args={[0.018, 0.018, 0.46, 12]} />}
+					materialNode={<meshToonMaterial color="#757f89" />}
+				/>
+				<OutlinedMesh
+					position={[0, 0, LOCK_HUB_Z]}
+					castShadow
+					receiveShadow
+					outlined={outlined}
+					rotation={[0, 0, Math.PI / 4]}
+					geometryNode={<cylinderGeometry args={[0.018, 0.018, 0.46, 12]} />}
+					materialNode={<meshToonMaterial color="#757f89" />}
+				/>
+				<OutlinedMesh
+					position={[hingeEdgeX, 0, DOOR_THICKNESS / 2 - 0.02]}
+					castShadow
+					receiveShadow
+					outlined={outlined}
+					geometryNode={<boxGeometry args={[DOOR_HINGE_BLOCK_WIDTH, DOOR_HINGE_BLOCK_HEIGHT, DOOR_HINGE_BLOCK_DEPTH]} />}
+					materialNode={<meshToonMaterial color="#6a737d" />}
+				/>
 				<DoorIndicatorLight
 					x={-0.31}
 					y={-0.31}
@@ -128,6 +168,7 @@ function VaultDoor({
 					emissiveColor="#2ea3ff"
 					isInserted={insertedBlue}
 					pulseStartSec={bluePulseStartSec}
+					outlined={outlined}
 				/>
 				<DoorIndicatorLight
 					x={0.31}
@@ -137,6 +178,7 @@ function VaultDoor({
 					emissiveColor="#ff4e63"
 					isInserted={insertedRed}
 					pulseStartSec={redPulseStartSec}
+					outlined={outlined}
 				/>
 			</group>
 		</group>
@@ -151,6 +193,7 @@ function DoorIndicatorLight({
 	emissiveColor,
 	isInserted,
 	pulseStartSec,
+	outlined,
 }: {
 	x: number;
 	y: number;
@@ -159,6 +202,7 @@ function DoorIndicatorLight({
 	emissiveColor: string;
 	isInserted: boolean;
 	pulseStartSec: number;
+	outlined: boolean;
 }) {
 	const materialRef = useRef<MeshToonMaterial>(null);
 	const lightRef = useRef<PointLight>(null);
@@ -181,21 +225,28 @@ function DoorIndicatorLight({
 
 	return (
 		<group position={[x, y, z]}>
-			<mesh castShadow receiveShadow>
-				<cylinderGeometry args={[0.085, 0.085, 0.045, 18]} />
-				<meshToonMaterial color="#232b33" />
-			</mesh>
-			<mesh position={[0, 0, 0.03]} castShadow receiveShadow>
-				<sphereGeometry args={[0.052, 16, 16]} />
-				<meshToonMaterial
-					ref={materialRef}
-					color={baseColor}
-					emissive={emissiveColor}
-					emissiveIntensity={isInserted ? 3.4 : 0.3}
-				
-				
-				/>
-			</mesh>
+			<OutlinedMesh
+				castShadow
+				receiveShadow
+				outlined={outlined}
+				geometryNode={<cylinderGeometry args={[0.085, 0.085, 0.045, 18]} />}
+				materialNode={<meshToonMaterial color="#232b33" />}
+			/>
+			<OutlinedMesh
+				position={[0, 0, 0.03]}
+				castShadow
+				receiveShadow
+				outlined={outlined}
+				geometryNode={<sphereGeometry args={[0.052, 16, 16]} />}
+				materialNode={
+					<meshToonMaterial
+						ref={materialRef}
+						color={baseColor}
+						emissive={emissiveColor}
+						emissiveIntensity={isInserted ? 3.4 : 0.3}
+					/>
+				}
+			/>
 			<pointLight ref={lightRef} color={emissiveColor} intensity={isInserted ? 1.9 : 0.35} distance={2.4} decay={2} />
 		</group>
 	);
@@ -208,6 +259,7 @@ function SlotUnit({
 	inserted,
 	pulseStartSec,
 	swallowStartSec,
+	outlined,
 }: {
 	x: number;
 	slotColor: string;
@@ -215,6 +267,7 @@ function SlotUnit({
 	inserted: boolean;
 	pulseStartSec: number;
 	swallowStartSec: number;
+	outlined: boolean;
 }) {
 	const bodyMaterialRef = useRef<MeshToonMaterial>(null);
 	const cornerMaterialRef = useRef<MeshToonMaterial>(null);
@@ -247,11 +300,21 @@ function SlotUnit({
 
 	return (
 		<group position={[x, SLOT_BODY_Y, SLOT_Z]} rotation={[0, 0, SLOT_ROTATION_Z]}>
-			<mesh castShadow receiveShadow>
-				<boxGeometry args={[SLOT_WIDTH, SLOT_HEIGHT, SLOT_DEPTH]} />
-				<meshToonMaterial ref={bodyMaterialRef} color="#3a4651" emissive={slotEmissive} emissiveIntensity={inserted ? 0.24 : 0.01} />
-			</mesh>
-			<mesh
+			<OutlinedMesh
+				castShadow
+				receiveShadow
+				outlined={outlined}
+				geometryNode={<boxGeometry args={[SLOT_WIDTH, SLOT_HEIGHT, SLOT_DEPTH]} />}
+				materialNode={
+					<meshToonMaterial
+						ref={bodyMaterialRef}
+						color="#3a4651"
+						emissive={slotEmissive}
+						emissiveIntensity={inserted ? 0.24 : 0.01}
+					/>
+				}
+			/>
+			<OutlinedMesh
 				position={[
 					SLOT_WIDTH / 2 - SLOT_CORNER_INDICATOR_SIZE * 0.8,
 					SLOT_HEIGHT / 2 - SLOT_CORNER_INDICATOR_SIZE * 0.8,
@@ -259,15 +322,25 @@ function SlotUnit({
 				]}
 				castShadow
 				receiveShadow
-			>
-				<boxGeometry args={[SLOT_CORNER_INDICATOR_SIZE, SLOT_CORNER_INDICATOR_SIZE, 0.016]} />
-				<meshToonMaterial ref={cornerMaterialRef} color={slotColor} emissive={slotEmissive} emissiveIntensity={inserted ? 0.95 : 0.05} />
-			</mesh>
+				outlined={outlined}
+				geometryNode={<boxGeometry args={[SLOT_CORNER_INDICATOR_SIZE, SLOT_CORNER_INDICATOR_SIZE, 0.016]} />}
+				materialNode={
+					<meshToonMaterial
+						ref={cornerMaterialRef}
+						color={slotColor}
+						emissive={slotEmissive}
+						emissiveIntensity={inserted ? 0.95 : 0.05}
+					/>
+				}
+			/>
 			<group ref={swallowRef} position={[0, 0, SLOT_INSERT_CARD_DEPTH + 0.05]} visible={false}>
-				<mesh castShadow receiveShadow>
-					<boxGeometry args={[SLOT_INSERT_CARD_WIDTH, SLOT_INSERT_CARD_HEIGHT, SLOT_INSERT_CARD_DEPTH]} />
-					<meshToonMaterial color={slotColor} emissive={slotEmissive} emissiveIntensity={0.7} />
-				</mesh>
+				<OutlinedMesh
+					castShadow
+					receiveShadow
+					outlined={outlined}
+					geometryNode={<boxGeometry args={[SLOT_INSERT_CARD_WIDTH, SLOT_INSERT_CARD_HEIGHT, SLOT_INSERT_CARD_DEPTH]} />}
+					materialNode={<meshToonMaterial color={slotColor} emissive={slotEmissive} emissiveIntensity={0.7} />}
+				/>
 			</group>
 		</group>
 	);
@@ -279,114 +352,102 @@ function VaultItem({
 	insertedBlue,
 	insertedRed,
 	openT,
+	outlined,
 }: {
 	vault: VaultState;
 	fx: VaultFxState;
 	insertedBlue: boolean;
 	insertedRed: boolean;
 	openT: number;
+	outlined: boolean;
 }) {
 	const hingeSide = vault.doorHingeSide === "right" ? "right" : "left";
 
 	return (
 		<group position={[vault.x, 0, vault.z]}>
-			<mesh
+			<OutlinedMesh
 				position={[-CELL_SIZE / 2 + VAULT_WALL_THICKNESS / 2, ROOM_HEIGHT / 2, 0]}
 				castShadow
 				receiveShadow
-			>
-				<boxGeometry args={[VAULT_WALL_THICKNESS, ROOM_HEIGHT, CELL_SIZE]} />
-				<meshToonMaterial color="#7c8792" />
-			</mesh>
-			<mesh
+				outlined={outlined}
+				geometryNode={<boxGeometry args={[VAULT_WALL_THICKNESS, ROOM_HEIGHT, CELL_SIZE]} />}
+				materialNode={<meshToonMaterial color="#7c8792" />}
+			/>
+			<OutlinedMesh
 				position={[CELL_SIZE / 2 - VAULT_WALL_THICKNESS / 2, ROOM_HEIGHT / 2, 0]}
 				castShadow
 				receiveShadow
-			>
-				<boxGeometry args={[VAULT_WALL_THICKNESS, ROOM_HEIGHT, CELL_SIZE]} />
-				<meshToonMaterial color="#7c8792" />
-			</mesh>
-			<mesh
-				position={[
-					0,
-					ROOM_HEIGHT / 2,
-					-CELL_SIZE / 2 + VAULT_WALL_THICKNESS / 2,
-				]}
+				outlined={outlined}
+				geometryNode={<boxGeometry args={[VAULT_WALL_THICKNESS, ROOM_HEIGHT, CELL_SIZE]} />}
+				materialNode={<meshToonMaterial color="#7c8792" />}
+			/>
+			<OutlinedMesh
+				position={[0, ROOM_HEIGHT / 2, -CELL_SIZE / 2 + VAULT_WALL_THICKNESS / 2]}
 				castShadow
 				receiveShadow
-			>
-				<boxGeometry
-					args={[CELL_SIZE - VAULT_WALL_THICKNESS * 2, ROOM_HEIGHT, VAULT_WALL_THICKNESS]}
-				/>
-				<meshToonMaterial color="#7c8792" />
-			</mesh>
-			<mesh
-				position={[
-					0,
-					VAULT_WALL_THICKNESS / 2,
-					-CELL_SIZE / 2 + (CELL_SIZE - VAULT_WALL_THICKNESS) / 2,
-				]}
+				outlined={outlined}
+				geometryNode={<boxGeometry args={[CELL_SIZE - VAULT_WALL_THICKNESS * 2, ROOM_HEIGHT, VAULT_WALL_THICKNESS]} />}
+				materialNode={<meshToonMaterial color="#7c8792" />}
+			/>
+			<OutlinedMesh
+				position={[0, VAULT_WALL_THICKNESS / 2, -CELL_SIZE / 2 + (CELL_SIZE - VAULT_WALL_THICKNESS) / 2]}
 				castShadow
 				receiveShadow
-			>
-				<boxGeometry
-					args={[CELL_SIZE - VAULT_WALL_THICKNESS * 2, VAULT_WALL_THICKNESS, CELL_SIZE - VAULT_WALL_THICKNESS]}
-				/>
-				<meshToonMaterial color="#6f7983" />
-			</mesh>
-			<mesh
-				position={[
-					0,
-					ROOM_HEIGHT - VAULT_WALL_THICKNESS / 2,
-					-CELL_SIZE / 2 + (CELL_SIZE - VAULT_WALL_THICKNESS) / 2,
-				]}
+				outlined={outlined}
+				geometryNode={<boxGeometry args={[CELL_SIZE - VAULT_WALL_THICKNESS * 2, VAULT_WALL_THICKNESS, CELL_SIZE - VAULT_WALL_THICKNESS]} />}
+				materialNode={<meshToonMaterial color="#6f7983" />}
+			/>
+			<OutlinedMesh
+				position={[0, ROOM_HEIGHT - VAULT_WALL_THICKNESS / 2, -CELL_SIZE / 2 + (CELL_SIZE - VAULT_WALL_THICKNESS) / 2]}
 				castShadow
 				receiveShadow
-			>
-				<boxGeometry
-					args={[CELL_SIZE - VAULT_WALL_THICKNESS * 2, VAULT_WALL_THICKNESS, CELL_SIZE - VAULT_WALL_THICKNESS]}
-				/>
-				<meshToonMaterial color="#6f7983" />
-			</mesh>
-			<mesh
-				position={[
-					0,
-					ROOM_HEIGHT / 2,
-					CELL_SIZE / 2 - VAULT_WALL_THICKNESS / 2,
-				]}
+				outlined={outlined}
+				geometryNode={<boxGeometry args={[CELL_SIZE - VAULT_WALL_THICKNESS * 2, VAULT_WALL_THICKNESS, CELL_SIZE - VAULT_WALL_THICKNESS]} />}
+				materialNode={<meshToonMaterial color="#6f7983" />}
+			/>
+			<OutlinedMesh
+				position={[0, ROOM_HEIGHT / 2, CELL_SIZE / 2 - VAULT_WALL_THICKNESS / 2]}
 				castShadow
 				receiveShadow
-			>
-				<Geometry computeVertexNormals>
-					<Base>
-						<boxGeometry
-							args={[CELL_SIZE - VAULT_WALL_THICKNESS * 2, ROOM_HEIGHT, VAULT_WALL_THICKNESS]}
-						/>
-					</Base>
-					<Subtraction
-						position={[0, DOOR_CENTER_Y - ROOM_HEIGHT / 2, 0]}
-						rotation={[Math.PI / 2, 0, 0]}
-					>
-						<cylinderGeometry args={[DOOR_RADIUS + 0.035, DOOR_RADIUS + 0.035, DOOR_WALL_CUT_DEPTH, 48]} />
-					</Subtraction>
-				</Geometry>
-				<meshToonMaterial color="#7c8792" />
-			</mesh>
-			<mesh position={[0, DOOR_CENTER_Y, PANEL_CENTER_Z]} castShadow receiveShadow>
-				<Geometry computeVertexNormals>
-					<Base>
-						<boxGeometry args={[PANEL_SIZE, PANEL_SIZE, PANEL_THICKNESS]} />
-					</Base>
-					<Subtraction rotation={[Math.PI / 2, 0, 0]}>
-						<cylinderGeometry args={[DOOR_RADIUS + 0.02, DOOR_RADIUS + 0.02, DOOR_PANEL_CUT_DEPTH, 48]} />
-					</Subtraction>
-				</Geometry>
-				<meshToonMaterial color="#5f6872" />
-			</mesh>
-			<mesh position={[0, DOOR_CENTER_Y, FRONT_FACE_Z + 0.008]} castShadow receiveShadow rotation={[Math.PI / 2, 0, 0]}>
-				<ringGeometry args={[DOOR_RADIUS + 0.01, DOOR_RADIUS + 0.1, 44]} />
-				<meshToonMaterial color="#4d5863" />
-			</mesh>
+				outlined={outlined}
+				geometryNode={
+					<Geometry computeVertexNormals>
+						<Base>
+							<boxGeometry args={[CELL_SIZE - VAULT_WALL_THICKNESS * 2, ROOM_HEIGHT, VAULT_WALL_THICKNESS]} />
+						</Base>
+						<Subtraction position={[0, DOOR_CENTER_Y - ROOM_HEIGHT / 2, 0]} rotation={[Math.PI / 2, 0, 0]}>
+							<cylinderGeometry args={[DOOR_RADIUS + 0.035, DOOR_RADIUS + 0.035, DOOR_WALL_CUT_DEPTH, 48]} />
+						</Subtraction>
+					</Geometry>
+				}
+				materialNode={<meshToonMaterial color="#7c8792" />}
+			/>
+			<OutlinedMesh
+				position={[0, DOOR_CENTER_Y, PANEL_CENTER_Z]}
+				castShadow
+				receiveShadow
+				outlined={outlined}
+				geometryNode={
+					<Geometry computeVertexNormals>
+						<Base>
+							<boxGeometry args={[PANEL_SIZE, PANEL_SIZE, PANEL_THICKNESS]} />
+						</Base>
+						<Subtraction rotation={[Math.PI / 2, 0, 0]}>
+							<cylinderGeometry args={[DOOR_RADIUS + 0.02, DOOR_RADIUS + 0.02, DOOR_PANEL_CUT_DEPTH, 48]} />
+						</Subtraction>
+					</Geometry>
+				}
+				materialNode={<meshToonMaterial color="#5f6872" />}
+			/>
+			<OutlinedMesh
+				position={[0, DOOR_CENTER_Y, FRONT_FACE_Z + 0.008]}
+				castShadow
+				receiveShadow
+				outlined={outlined}
+				rotation={[Math.PI / 2, 0, 0]}
+				geometryNode={<ringGeometry args={[DOOR_RADIUS + 0.01, DOOR_RADIUS + 0.1, 44]} />}
+				materialNode={<meshToonMaterial color="#4d5863" />}
+			/>
 			<SlotUnit
 				x={-SLOT_X_OFFSET}
 				slotColor="#5ebfff"
@@ -394,6 +455,7 @@ function VaultItem({
 				inserted={insertedBlue}
 				pulseStartSec={fx.bluePulseStartSec}
 				swallowStartSec={fx.blueSwallowStartSec}
+				outlined={outlined}
 			/>
 			<SlotUnit
 				x={SLOT_X_OFFSET}
@@ -402,16 +464,22 @@ function VaultItem({
 				inserted={insertedRed}
 				pulseStartSec={fx.redPulseStartSec}
 				swallowStartSec={fx.redSwallowStartSec}
+				outlined={outlined}
 			/>
 			<group position={[0, LAMP_Y, LAMP_Z]}>
-				<mesh castShadow receiveShadow>
-					<boxGeometry args={[0.46, 0.12, 0.12]} />
-					<meshToonMaterial color="#3b444e" />
-				</mesh>
-				<mesh position={[0, -0.06, 0]}>
-					<sphereGeometry args={[0.08, 16, 16]} />
-					<meshToonMaterial color="#ffdca8" emissive="#ffc26a" emissiveIntensity={2.2} />
-				</mesh>
+				<OutlinedMesh
+					castShadow
+					receiveShadow
+					outlined={outlined}
+					geometryNode={<boxGeometry args={[0.46, 0.12, 0.12]} />}
+					materialNode={<meshToonMaterial color="#3b444e" />}
+				/>
+				<OutlinedMesh
+					position={[0, -0.06, 0]}
+					outlined={outlined}
+					geometryNode={<sphereGeometry args={[0.08, 16, 16]} />}
+					materialNode={<meshToonMaterial color="#ffdca8" emissive="#ffc26a" emissiveIntensity={2.2} />}
+				/>
 				<pointLight color="#ffdca8" intensity={5} distance={6.5} decay={2} />
 			</group>
 			<VaultDoor
@@ -421,6 +489,7 @@ function VaultItem({
 				insertedRed={insertedRed}
 				bluePulseStartSec={fx.bluePulseStartSec}
 				redPulseStartSec={fx.redPulseStartSec}
+				outlined={outlined}
 			/>
 		</group>
 	);
@@ -429,11 +498,17 @@ function VaultItem({
 export function VaultLayer({
 	fogByCell: _fogByCell,
 	revealAll: _revealAll,
+	areaInfo,
+	currentArea,
 	audioEnabled = true,
+	outlinesEnabled = true,
 }: {
 	fogByCell: Map<string, "hidden" | "explored" | "visible">;
 	revealAll: boolean;
+	areaInfo: { labelByCell: Map<string, string> };
+	currentArea: string;
 	audioEnabled?: boolean;
+	outlinesEnabled?: boolean;
 }) {
 	useVaultAudio(audioEnabled);
 	const { room } = useRoom();
@@ -534,6 +609,9 @@ export function VaultLayer({
 		});
 	}, [room]);
 
+	const cellKey = `${Math.round(vault.x / CELL_SIZE)},${Math.round(vault.z / CELL_SIZE)}`;
+	const outlined = outlinesEnabled && !_revealAll && areaInfo.labelByCell.get(cellKey) === currentArea;
+
 	return (
 		<group>
 			<VaultItem
@@ -543,6 +621,7 @@ export function VaultLayer({
 				insertedBlue={effectiveInsertedBlue}
 				insertedRed={effectiveInsertedRed}
 				openT={effectiveOpenT}
+				outlined={outlined}
 			/>
 		</group>
 	);

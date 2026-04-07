@@ -1,6 +1,7 @@
 import { useMemo } from "react";
 import { CELL_SIZE, ROOM_HEIGHT, layoutOccupancy, mulberry32, type MapLayout } from "@vibejam/shared";
 import type { FogState } from "./GameScene";
+import { OutlinedMesh } from "./toonOutline/OutlinedMesh";
 
 type AreaInfo = {
 	labelByCell: Map<string, string>;
@@ -133,46 +134,57 @@ function buildFixtures(layout: MapLayout, areaInfo: AreaInfo): Fixture[] {
 	return fixtures;
 }
 
-function CorridorFixture({ mode, fixture }: { mode: "off" | "memory" | "active"; fixture: CorridorLight }) {
+function CorridorFixture({ mode, fixture, outlinesEnabled }: { mode: "off" | "memory" | "active"; fixture: CorridorLight; outlinesEnabled: boolean }) {
 	const active = mode === "active";
 	const memory = mode === "memory";
 	return (
 		<group position={[fixture.x, fixture.y, fixture.z]} rotation={[0, fixture.rotationY, 0]}>
-			<mesh castShadow receiveShadow>
-				<boxGeometry args={[0.08, 0.05, fixture.length]} />
-				<meshToonMaterial
-					color={active ? "#dfefff" : memory ? "#7c8792" : "#4c545d"}
-					emissive={active ? "#d6ecff" : memory ? "#6f7a86" : "#000000"}
-					emissiveIntensity={active ? 1.4 : memory ? 0.18 : 0}
-				
-				
-				/>
-			</mesh>
+			<OutlinedMesh
+				castShadow
+				receiveShadow
+				outlined={outlinesEnabled && active}
+				geometryNode={<boxGeometry args={[0.08, 0.05, fixture.length]} />}
+				materialNode={
+					<meshToonMaterial
+						color={active ? "#dfefff" : memory ? "#7c8792" : "#4c545d"}
+						emissive={active ? "#d6ecff" : memory ? "#6f7a86" : "#000000"}
+						emissiveIntensity={active ? 1.4 : memory ? 0.18 : 0}
+					/>
+				}
+			/>
 			{active ? <rectAreaLight args={["#cde6ff", 3.4, fixture.length * 0.92, 0.24]} position={[0, -0.1, 0]} rotation={[-Math.PI / 2, 0, 0]} /> : null}
 			{active ? <pointLight color="#d8ebff" intensity={0.75} distance={5.5} decay={2} position={[0, -0.22, 0]} /> : null}
 		</group>
 	);
 }
 
-function WallFixture({ mode, fixture }: { mode: "off" | "memory" | "active"; fixture: WallLight }) {
+function WallFixture({ mode, fixture, outlinesEnabled }: { mode: "off" | "memory" | "active"; fixture: WallLight; outlinesEnabled: boolean }) {
 	const active = mode === "active";
 	const memory = mode === "memory";
 	return (
 		<group position={[fixture.x, fixture.y, fixture.z]} rotation={[0, fixture.rotationY, 0]}>
-			<mesh castShadow receiveShadow position={[0, 0, 0]}>
-				<boxGeometry args={[0.18, 0.34, 0.28]} />
-				<meshToonMaterial color="#8a6c4a" />
-			</mesh>
-			<mesh castShadow={false} receiveShadow={false} position={[0, 0.16, 0.09]}>
-				<sphereGeometry args={[0.11, 12, 12]} />
-				<meshToonMaterial
-					color={active ? "#ffe7ba" : memory ? "#988872" : "#6e6254"}
-					emissive={active ? "#ffd89a" : memory ? "#8e7b64" : "#000000"}
-					emissiveIntensity={active ? 2.13 : memory ? 0.12 : 0}
-				
-				
-				/>
-			</mesh>
+			<OutlinedMesh
+				position={[0, 0, 0]}
+				castShadow
+				receiveShadow
+				outlined={outlinesEnabled && active}
+				geometryNode={<boxGeometry args={[0.18, 0.34, 0.28]} />}
+				materialNode={<meshToonMaterial color="#8a6c4a" />}
+			/>
+			<OutlinedMesh
+				position={[0, 0.16, 0.09]}
+				castShadow={false}
+				receiveShadow={false}
+				outlined={outlinesEnabled && active}
+				geometryNode={<sphereGeometry args={[0.11, 12, 12]} />}
+				materialNode={
+					<meshToonMaterial
+						color={active ? "#ffe7ba" : memory ? "#988872" : "#6e6254"}
+						emissive={active ? "#ffd89a" : memory ? "#8e7b64" : "#000000"}
+						emissiveIntensity={active ? 2.13 : memory ? 0.12 : 0}
+					/>
+				}
+			/>
 			{active ? <pointLight color="#ffd7a1" intensity={2.6} distance={14.2} decay={2} position={[0, 0.1, 0.46]} /> : null}
 		</group>
 	);
@@ -183,11 +195,13 @@ export function LightingLayer({
 	areaInfo,
 	currentArea,
 	fogByCell,
+	outlinesEnabled = true,
 }: {
 	layout: MapLayout;
 	areaInfo: AreaInfo;
 	currentArea: string;
 	fogByCell: Map<string, FogState>;
+	outlinesEnabled?: boolean;
 }) {
 	const fixtures = useMemo(() => buildFixtures(layout, areaInfo), [areaInfo, layout]);
 
@@ -205,9 +219,9 @@ export function LightingLayer({
 				const active = fixture.area === currentArea;
 				const mode: "off" | "memory" | "active" = active ? "active" : fog === "explored" ? "memory" : "off";
 				return fixture.kind === "corridor" ? (
-					<CorridorFixture key={`${fixture.area}-${index}`} fixture={fixture} mode={mode} />
+					<CorridorFixture key={`${fixture.area}-${index}`} fixture={fixture} mode={mode} outlinesEnabled={outlinesEnabled} />
 				) : (
-					<WallFixture key={`${fixture.area}-${index}`} fixture={fixture} mode={mode} />
+					<WallFixture key={`${fixture.area}-${index}`} fixture={fixture} mode={mode} outlinesEnabled={outlinesEnabled} />
 				);
 			})}
 		</group>

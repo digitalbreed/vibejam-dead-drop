@@ -32,6 +32,7 @@ import { SuitcaseLayer } from "./suitcases/SuitcaseLayer";
 import { VaultLayer } from "./vaults/VaultLayer";
 import { FileCabinetLayer } from "./fileCabinets/FileCabinetLayer";
 import { CelRenderLayer } from "./celRender";
+import { OutlinedMesh } from "./toonOutline/OutlinedMesh";
 
 const MOVE_SPEED = 12;
 const CAMERA_OFFSET = { x: 0, y: 8.5, z: 14 };
@@ -227,6 +228,7 @@ function PlayerVisual({
 	carriedSuitcase,
 	isInteracting,
 	interactionProgress,
+	outlined = true,
 }: {
 	color: number;
 	isLocal: boolean;
@@ -237,6 +239,7 @@ function PlayerVisual({
 	carriedSuitcase?: boolean;
 	isInteracting?: boolean;
 	interactionProgress?: number;
+	outlined?: boolean;
 }) {
 	const groupRef = useRef<Group>(null);
 	const visualRef = useRef<Group>(null);
@@ -342,10 +345,14 @@ function PlayerVisual({
 	return (
 		<group ref={groupRef}>
 			<group ref={visualRef}>
-				<mesh castShadow={isLocal} receiveShadow position={[0, 0.8, 0]}>
-					<coneGeometry args={[0.45, 1.6, 10]} />
-					<meshToonMaterial color={colorObj} />
-				</mesh>
+				<OutlinedMesh
+					castShadow={isLocal}
+					receiveShadow
+					position={[0, 0.8, 0]}
+					outlined={outlined}
+					geometryNode={<coneGeometry args={[0.45, 1.6, 10]} />}
+					materialNode={<meshToonMaterial color={colorObj} />}
+				/>
 				<group position={[0, 1.02, 0.3]}>
 					<group ref={leftEyeRef} position={[-0.13, 0, -0.05]}>
 						<mesh castShadow={isLocal}>
@@ -370,34 +377,48 @@ function PlayerVisual({
 				</group>
 				{carriedKeycardColor ? (
 					<group position={[0.52, 0.51, 0.08]} rotation={[0, Math.PI / 2, 0]}>
-						<mesh castShadow={isLocal} receiveShadow>
-							<boxGeometry args={[0.62, 0.06, 0.38]} />
-							<meshToonMaterial
-								color={new Color(KEYCARD_COLOR_BY_KIND[carriedKeycardColor])}
-								emissive={new Color(KEYCARD_COLOR_BY_KIND[carriedKeycardColor])}
-								emissiveIntensity={0.45}
-							
-							
-							/>
-						</mesh>
-						<mesh position={[0, 0.036, 0]} castShadow={isLocal} receiveShadow>
-							<boxGeometry args={[0.22, 0.016, 0.26]} />
-							<meshToonMaterial color="#f4f6fa" />
-						</mesh>
+						<OutlinedMesh
+							castShadow={isLocal}
+							receiveShadow
+							outlined={outlined}
+							geometryNode={<boxGeometry args={[0.62, 0.06, 0.38]} />}
+							materialNode={
+								<meshToonMaterial
+									color={new Color(KEYCARD_COLOR_BY_KIND[carriedKeycardColor])}
+									emissive={new Color(KEYCARD_COLOR_BY_KIND[carriedKeycardColor])}
+									emissiveIntensity={0.45}
+								/>
+							}
+						/>
+						<OutlinedMesh
+							position={[0, 0.036, 0]}
+							castShadow={isLocal}
+							receiveShadow
+							outlined={outlined}
+							geometryNode={<boxGeometry args={[0.22, 0.016, 0.26]} />}
+							materialNode={<meshToonMaterial color="#f4f6fa" />}
+						/>
 					</group>
 				) : null}
 				{carriedSuitcase ? (
 					<group position={[-0.44, 0.44, -0.02]}>
 						<group rotation={[0, Math.PI / 2 - 0.28, 0]}>
 							<group rotation={[0, 0, -0.1]}>
-								<mesh castShadow={isLocal} receiveShadow>
-									<boxGeometry args={[0.75, 0.5, 0.15]} />
-									<meshToonMaterial color="#a9b5c2" emissive="#4a5562" emissiveIntensity={0.18} />
-								</mesh>
-								<mesh position={[0, 0.24, 0]} castShadow={isLocal} receiveShadow>
-									<torusGeometry args={[0.12, 0.02, 10, 18]} />
-									<meshToonMaterial color="#c3ccd6" />
-								</mesh>
+								<OutlinedMesh
+									castShadow={isLocal}
+									receiveShadow
+									outlined={outlined}
+									geometryNode={<boxGeometry args={[0.75, 0.5, 0.15]} />}
+									materialNode={<meshToonMaterial color="#a9b5c2" emissive="#4a5562" emissiveIntensity={0.18} />}
+								/>
+								<OutlinedMesh
+									position={[0, 0.24, 0]}
+									castShadow={isLocal}
+									receiveShadow
+									outlined={outlined}
+									geometryNode={<torusGeometry args={[0.12, 0.02, 10, 18]} />}
+									materialNode={<meshToonMaterial color="#c3ccd6" />}
+								/>
 							</group>
 						</group>
 					</group>
@@ -422,8 +443,8 @@ function PlayerVisual({
 							color="#7cd6ff"
 							emissive="#2db9ff"
 							emissiveIntensity={0.9}
-						
-						
+
+
 							side={DoubleSide}
 							depthWrite={false}
 							polygonOffset
@@ -675,12 +696,14 @@ function SceneContent({
 	debugCameraEnabled,
 	audioEnabled,
 	inputSource,
+	outlinesEnabled,
 }: {
 	onAreaChange?: (label: string) => void;
 	revealAll: boolean;
 	debugCameraEnabled: boolean;
 	audioEnabled: boolean;
 	inputSource?: KeyboardInputSource;
+	outlinesEnabled: boolean;
 }) {
 	const { room } = useRoom();
 	const players = useRoomState((s) => s.players);
@@ -877,10 +900,25 @@ function SceneContent({
 				areaInfo={areaInfo}
 				currentArea={currentArea}
 				playerPositionRef={localVisualRef}
+				outlinesEnabled={outlinesEnabled}
 			/>
 			<DoorLayer fogByCell={fogByCell} revealAll={revealAll} audioEnabled={audioEnabled} />
-			<KeycardLayer fogByCell={fogByCell} revealAll={revealAll} audioEnabled={audioEnabled} />
-			<SuitcaseLayer fogByCell={fogByCell} revealAll={revealAll} audioEnabled={audioEnabled} />
+			<KeycardLayer
+				fogByCell={fogByCell}
+				revealAll={revealAll}
+				areaInfo={areaInfo}
+				currentArea={currentArea}
+				audioEnabled={audioEnabled}
+				outlinesEnabled={outlinesEnabled}
+			/>
+			<SuitcaseLayer
+				fogByCell={fogByCell}
+				revealAll={revealAll}
+				areaInfo={areaInfo}
+				currentArea={currentArea}
+				audioEnabled={audioEnabled}
+				outlinesEnabled={outlinesEnabled}
+			/>
 			<FileCabinetLayer
 				fogByCell={fogByCell}
 				revealAll={revealAll}
@@ -889,7 +927,14 @@ function SceneContent({
 				areaInfo={areaInfo}
 				currentArea={currentArea}
 			/>
-			<VaultLayer fogByCell={fogByCell} revealAll={revealAll} audioEnabled={audioEnabled} />
+			<VaultLayer
+				fogByCell={fogByCell}
+				revealAll={revealAll}
+				areaInfo={areaInfo}
+				currentArea={currentArea}
+				audioEnabled={audioEnabled}
+				outlinesEnabled={outlinesEnabled}
+			/>
 			{list.map((p) =>
 				p.isLocal ? (
 					<PlayerVisual
@@ -898,6 +943,7 @@ function SceneContent({
 						isLocal
 						positionRef={localVisualRef}
 						smoothing={0}
+						outlined={outlinesEnabled}
 						carriedKeycardColor={p.carriedKeycardColor}
 						carriedSuitcase={p.carriedSuitcase}
 						isInteracting={p.isInteracting}
@@ -914,6 +960,7 @@ function SceneContent({
 						carriedSuitcase={p.carriedSuitcase}
 						isInteracting={p.isInteracting}
 						interactionProgress={p.interactionProgress}
+						outlined={false}
 					/>
 				) : null,
 			)}
@@ -927,12 +974,14 @@ export function GameScene({
 	debugCameraEnabled,
 	audioEnabled = true,
 	inputSource,
+	outlinesEnabled = true,
 }: {
 	onAreaChange?: (label: string) => void;
 	revealAll: boolean;
 	debugCameraEnabled: boolean;
 	audioEnabled?: boolean;
 	inputSource?: KeyboardInputSource;
+	outlinesEnabled?: boolean;
 }) {
 	return (
 		<Canvas shadows camera={{ fov: 50, near: 0.1, far: 500 }} style={{ width: "100%", height: "100%" }}>
@@ -943,6 +992,7 @@ export function GameScene({
 				debugCameraEnabled={debugCameraEnabled}
 				audioEnabled={audioEnabled}
 				inputSource={inputSource}
+				outlinesEnabled={outlinesEnabled}
 			/>
 		</Canvas>
 	);

@@ -7,6 +7,7 @@ import {
 } from "@vibejam/shared";
 import { Color } from "three";
 import type { AreaInfo, FogState } from "../GameScene";
+import { OutlinedMesh } from "../toonOutline/OutlinedMesh";
 
 function fogAtPosition(fogByCell: Map<string, FogState>, x: number, z: number): FogState {
 	return fogByCell.get(`${Math.round(x / CELL_SIZE)},${Math.round(z / CELL_SIZE)}`) ?? "hidden";
@@ -58,7 +59,8 @@ function FileCabinetMesh({ cabinet, inSameRoom }: { cabinet: FileCabinetPlacemen
 	const zFrontPlane = depth / 2 - EXTRUDE;
 	const drawerFaceDepth = EXTRUDE + 0.012;
 	const slotH = height / stackCount;
-	const drawerGap = 0.014;
+	// Wider gaps help toon outlines read at gameplay distance.
+	const drawerGap = 0.04;
 	const sideInset = 0.05;
 	const drawerWidth = Math.max(0.2, width - sideInset * 2);
 
@@ -73,22 +75,41 @@ function FileCabinetMesh({ cabinet, inSameRoom }: { cabinet: FileCabinetPlacemen
 		return slots;
 	}, [stackCount, height, slotH, zFrontPlane, drawerFaceDepth]);
 
+	// Drawer faces sit very close to the carcass; give the outline a bit more help.
+	const CABINET_OUTLINE_THICKNESS = 0.04;
+	const DRAWER_OUTLINE_THICKNESS = 0.02;
+	const DRAWER_FRONT_BIAS = 0.04;
+
 	return (
 		<group position={[cabinet.x, height / 2, cabinet.z]} rotation={[0, rotationY, 0]}>
-			<mesh receiveShadow castShadow={false} position={[0, 0, zCarcassCenter]}>
-				<boxGeometry args={[width * 0.995, height * 0.998, carcassDepth]} />
-				<meshToonMaterial color={palette.carcass} />
-			</mesh>
+			<OutlinedMesh
+				receiveShadow
+				castShadow={false}
+				outlined={inSameRoom}
+				outlineThickness={CABINET_OUTLINE_THICKNESS}
+				position={[0, 0, zCarcassCenter]}
+				geometryNode={<boxGeometry args={[width * 0.995, height * 0.998, carcassDepth]} />}
+				materialNode={<meshToonMaterial color={palette.carcass} />}
+			/>
 			{drawerSlots.map((slot, index) => (
 				<group key={index}>
-					<mesh castShadow receiveShadow position={[0, slot.y, slot.z]}>
-						<boxGeometry args={[drawerWidth, slot.h, drawerFaceDepth]} />
-						<meshToonMaterial color={palette.drawer} />
-					</mesh>
-					<mesh castShadow={false} position={[0, slot.y - slot.h * 0.08, slot.z + drawerFaceDepth * 0.3]}>
-						<boxGeometry args={[drawerWidth * 0.22, 0.028, 0.014]} />
-						<meshToonMaterial color={palette.handle} />
-					</mesh>
+					<OutlinedMesh
+						castShadow
+						receiveShadow
+						outlined={inSameRoom}
+						outlineThickness={DRAWER_OUTLINE_THICKNESS}
+						position={[0, slot.y, slot.z + DRAWER_FRONT_BIAS]}
+						geometryNode={<boxGeometry args={[drawerWidth, slot.h, drawerFaceDepth]} />}
+						materialNode={<meshToonMaterial color={palette.drawer} />}
+					/>
+					<OutlinedMesh
+						castShadow={false}
+						outlined={inSameRoom}
+						outlineThickness={DRAWER_OUTLINE_THICKNESS}
+						position={[0, slot.y - slot.h * 0.08, slot.z + drawerFaceDepth * 0.3 + DRAWER_FRONT_BIAS]}
+						geometryNode={<boxGeometry args={[drawerWidth * 0.22, 0.028, 0.014]} />}
+						materialNode={<meshToonMaterial color={palette.handle} />}
+					/>
 				</group>
 			))}
 		</group>

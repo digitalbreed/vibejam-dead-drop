@@ -60,7 +60,7 @@ function visitToonMaterials(material: Material | Material[], fn: (material: Mesh
 
 function applyToonGradientMap(root: Object3D, gradientMap: DataTexture) {
 	root.traverse((object) => {
-		if (!(object as Object3D & { isMesh?: boolean }).isMesh) {
+		if (!(object as Object3D & { isMesh?: boolean }).isMesh || object.userData.isCelOutline) {
 			return;
 		}
 		const mesh = object as Mesh;
