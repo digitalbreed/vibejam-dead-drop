@@ -15,7 +15,7 @@ import {
 	Color,
 	InstancedMesh,
 	Matrix4,
-	MeshStandardMaterial,
+	MeshToonMaterial,
 	Quaternion,
 	Vector2,
 	Vector3,
@@ -50,7 +50,7 @@ function SouthWallCutoutMaterial({
 	fog: FogState;
 	playerPositionRef: MutableRefObject<Vector3>;
 }) {
-	const materialRef = useRef<MeshStandardMaterial>(null);
+	const materialRef = useRef<MeshToonMaterial>(null);
 	const { camera, size, gl } = useThree();
 	const uniforms = useMemo(
 		() => ({
@@ -87,12 +87,10 @@ function SouthWallCutoutMaterial({
 	});
 
 	return (
-		<meshStandardMaterial
+		<meshToonMaterial
 			ref={materialRef}
 			map={texture}
 			color={new Color(fogTint(fog))}
-			roughness={0.92}
-			metalness={0.02}
 			onBeforeCompile={(shader) => {
 				shader.uniforms.cutoutCenter = uniforms.cutoutCenter;
 				shader.uniforms.cutoutRadius = uniforms.cutoutRadius;
@@ -141,7 +139,7 @@ function FloorBatch({ cells, texture, fog }: { cells: MapCell[]; texture: DecorT
 	return (
 		<instancedMesh ref={ref} args={[undefined, undefined, cells.length]} receiveShadow castShadow>
 			<boxGeometry args={[CELL_SIZE, 0.08, CELL_SIZE]} />
-			<meshStandardMaterial map={texture} color={fogTint(fog)} roughness={0.9} metalness={0.02} />
+			<meshToonMaterial map={texture} color={fogTint(fog)} />
 		</instancedMesh>
 	);
 }
@@ -225,7 +223,7 @@ function WallBatch({
 			{playerPositionRef ? (
 				<SouthWallCutoutMaterial texture={texture} fog={fog} playerPositionRef={playerPositionRef} />
 			) : (
-				<meshStandardMaterial map={texture} color={fogTint(fog)} roughness={0.92} metalness={0.02} />
+				<meshToonMaterial map={texture} color={fogTint(fog)} />
 			)}
 		</instancedMesh>
 	);
@@ -413,3 +411,6 @@ export function MapLevel({
 		</group>
 	);
 }
+
+
+

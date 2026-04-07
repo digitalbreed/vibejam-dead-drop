@@ -1,6 +1,6 @@
 import { useEffect } from "react";
 import { useFrame } from "@react-three/fiber";
-import { MeshStandardMaterial, Vector2 } from "three";
+import { MeshToonMaterial, Vector2 } from "three";
 
 export type PassthroughState = {
 	center: Vector2;
@@ -14,7 +14,9 @@ type ShaderWithUniforms = {
 	uniforms: Record<string, { value: unknown }>;
 };
 
-function ensurePassthrough(material: MeshStandardMaterial) {
+type PassthroughMaterial = MeshToonMaterial;
+
+function ensurePassthrough(material: PassthroughMaterial) {
 	if (material.userData.passthroughInitialized) {
 		return;
 	}
@@ -62,7 +64,7 @@ function ensurePassthrough(material: MeshStandardMaterial) {
 	material.needsUpdate = true;
 }
 
-function updatePassthrough(material: MeshStandardMaterial, passthrough: PassthroughState, enabled: boolean) {
+function updatePassthrough(material: PassthroughMaterial, passthrough: PassthroughState, enabled: boolean) {
 	const shader = material.userData.passthroughShader as ShaderWithUniforms | undefined;
 	if (!shader) {
 		return;
@@ -75,7 +77,7 @@ function updatePassthrough(material: MeshStandardMaterial, passthrough: Passthro
 	shader.uniforms.uPassEnabled.value = enabled ? 1 : 0;
 }
 
-export function usePassthroughMaterials(materials: MeshStandardMaterial[], passthrough: PassthroughState | undefined, enabled: boolean) {
+export function usePassthroughMaterials(materials: PassthroughMaterial[], passthrough: PassthroughState | undefined, enabled: boolean) {
 	useEffect(() => {
 		if (!passthrough) {
 			return;
@@ -94,3 +96,5 @@ export function usePassthroughMaterials(materials: MeshStandardMaterial[], passt
 		}
 	}, 100);
 }
+
+

@@ -48,11 +48,11 @@ function KeycardMesh({
 		<group ref={groupRef} position={[x, y, z]}>
 			<mesh castShadow receiveShadow>
 				<boxGeometry args={[0.62, 0.06, 0.38]} />
-				<meshStandardMaterial color={new Color(color)} emissive={new Color(color)} emissiveIntensity={0.45} roughness={0.38} metalness={0.24} />
+				<meshToonMaterial color={new Color(color)} emissive={new Color(color)} emissiveIntensity={0.45} />
 			</mesh>
 			<mesh position={[0, 0.036, 0]} castShadow receiveShadow>
 				<boxGeometry args={[0.22, 0.016, 0.26]} />
-				<meshStandardMaterial color="#f4f6fa" roughness={0.85} metalness={0.03} />
+				<meshToonMaterial color="#f4f6fa" />
 			</mesh>
 		</group>
 	);
@@ -98,3 +98,6 @@ export function KeycardLayer({
 		</group>
 	);
 }
+
+
+

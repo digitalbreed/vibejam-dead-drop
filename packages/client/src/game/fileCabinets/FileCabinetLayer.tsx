@@ -77,17 +77,17 @@ function FileCabinetMesh({ cabinet, inSameRoom }: { cabinet: FileCabinetPlacemen
 		<group position={[cabinet.x, height / 2, cabinet.z]} rotation={[0, rotationY, 0]}>
 			<mesh receiveShadow castShadow={false} position={[0, 0, zCarcassCenter]}>
 				<boxGeometry args={[width * 0.995, height * 0.998, carcassDepth]} />
-				<meshStandardMaterial color={palette.carcass} roughness={0.55} metalness={0.62} />
+				<meshToonMaterial color={palette.carcass} />
 			</mesh>
 			{drawerSlots.map((slot, index) => (
 				<group key={index}>
 					<mesh castShadow receiveShadow position={[0, slot.y, slot.z]}>
 						<boxGeometry args={[drawerWidth, slot.h, drawerFaceDepth]} />
-						<meshStandardMaterial color={palette.drawer} roughness={0.48} metalness={0.58} />
+						<meshToonMaterial color={palette.drawer} />
 					</mesh>
 					<mesh castShadow={false} position={[0, slot.y - slot.h * 0.08, slot.z + drawerFaceDepth * 0.3]}>
 						<boxGeometry args={[drawerWidth * 0.22, 0.028, 0.014]} />
-						<meshStandardMaterial color={palette.handle} roughness={0.35} metalness={0.75} />
+						<meshToonMaterial color={palette.handle} />
 					</mesh>
 				</group>
 			))}
@@ -133,3 +133,6 @@ export function FileCabinetLayer({
 		</group>
 	);
 }
+
+
+

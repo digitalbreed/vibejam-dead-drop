@@ -15,14 +15,6 @@ type DoorFacePalette = {
 	metal: string;
 };
 
-function fract(n: number): number {
-	return n - Math.floor(n);
-}
-
-function noise2(seed: number, x: number, y: number): number {
-	return fract(Math.sin(seed * 0.00013 + x * 12.9898 + y * 78.233) * 43758.5453);
-}
-
 function makeTexture(canvas: HTMLCanvasElement, repeatX: number, repeatY: number): CanvasTexture {
 	const texture = new CanvasTexture(canvas);
 	texture.wrapS = RepeatWrapping;
@@ -33,25 +25,8 @@ function makeTexture(canvas: HTMLCanvasElement, repeatX: number, repeatY: number
 	return texture;
 }
 
-function fillNoiseRect(
-	ctx: CanvasRenderingContext2D,
-	width: number,
-	height: number,
-	seed: number,
-	alpha: number,
-	step = 2,
-): void {
-	for (let y = 0; y < height; y += step) {
-		for (let x = 0; x < width; x += step) {
-			const n = noise2(seed, x, y);
-			const shade = Math.floor(255 * n);
-			ctx.fillStyle = `rgba(${shade}, ${shade}, ${shade}, ${alpha})`;
-			ctx.fillRect(x, y, step, step);
-		}
-	}
-}
-
 function createCarpetTexture(seed: number, variant: number): CanvasTexture {
+	void seed;
 	const canvas = document.createElement("canvas");
 	canvas.width = 128;
 	canvas.height = 128;
@@ -61,40 +36,14 @@ function createCarpetTexture(seed: number, variant: number): CanvasTexture {
 	}
 
 	const redFamily = variant % 2 === 0;
-	const base = new Color(redFamily ? "#4d1620" : "#1f4a2f");
-	const mid = new Color(redFamily ? "#64212c" : "#295c3a");
-	const line = new Color(redFamily ? "#a98b68" : "#c5b68a");
+	const base = new Color(redFamily ? "#8a1f2e" : "#2d7a3d");
 	ctx.fillStyle = `#${base.getHexString()}`;
 	ctx.fillRect(0, 0, canvas.width, canvas.height);
-
-	ctx.globalAlpha = 0.32;
-	ctx.fillStyle = `#${mid.getHexString()}`;
-	for (let y = 0; y < canvas.height; y += 6) {
-		const wobble = (noise2(seed + variant * 17, y, 0) - 0.5) * 3;
-		ctx.fillRect(0, y + wobble, canvas.width, 3);
-	}
-	ctx.globalAlpha = 1;
-
-	fillNoiseRect(ctx, canvas.width, canvas.height, seed + variant * 97, 0.07, 2);
-
-	ctx.strokeStyle = `rgba(${Math.round(line.r * 255)}, ${Math.round(line.g * 255)}, ${Math.round(line.b * 255)}, 0.55)`;
-	ctx.lineWidth = 2;
-	ctx.strokeRect(6, 6, canvas.width - 12, canvas.height - 12);
-	ctx.lineWidth = 1;
-	ctx.strokeRect(12, 12, canvas.width - 24, canvas.height - 24);
-
-	for (let x = 18; x < canvas.width - 18; x += 18) {
-		ctx.strokeStyle = `rgba(${Math.round(line.r * 255)}, ${Math.round(line.g * 255)}, ${Math.round(line.b * 255)}, 0.12)`;
-		ctx.beginPath();
-		ctx.moveTo(x, 12);
-		ctx.lineTo(x, canvas.height - 12);
-		ctx.stroke();
-	}
-
 	return makeTexture(canvas, 1.8, 1.8);
 }
 
 function createCorridorFloorTexture(seed: number): CanvasTexture {
+	void seed;
 	const canvas = document.createElement("canvas");
 	canvas.width = 128;
 	canvas.height = 128;
@@ -103,24 +52,16 @@ function createCorridorFloorTexture(seed: number): CanvasTexture {
 		return makeTexture(canvas, 2, 2);
 	}
 
-	const base = new Color("#53575c");
-	const shadow = new Color("#3f4347");
-	const highlight = new Color("#656b70");
+	const base = new Color("#5a5f66");
 	ctx.fillStyle = `#${base.getHexString()}`;
 	ctx.fillRect(0, 0, canvas.width, canvas.height);
-	fillNoiseRect(ctx, canvas.width, canvas.height, seed + 901, 0.08, 2);
-	fillNoiseRect(ctx, canvas.width, canvas.height, seed + 1337, 0.03, 1);
-
-	for (let y = 0; y < canvas.height; y += 6) {
-		const shade = noise2(seed + 404, 0, y);
-		ctx.fillStyle = shade > 0.5 ? `rgba(${Math.round(highlight.r * 255)}, ${Math.round(highlight.g * 255)}, ${Math.round(highlight.b * 255)}, 0.05)` : `rgba(${Math.round(shadow.r * 255)}, ${Math.round(shadow.g * 255)}, ${Math.round(shadow.b * 255)}, 0.06)`;
-		ctx.fillRect(0, y, canvas.width, 2);
-	}
 
 	return makeTexture(canvas, 2.6, 2.6);
 }
 
 function createWallTexture(seed: number, variant: number): CanvasTexture {
+	void seed;
+	void variant;
 	const canvas = document.createElement("canvas");
 	canvas.width = 128;
 	canvas.height = 256;
@@ -129,51 +70,22 @@ function createWallTexture(seed: number, variant: number): CanvasTexture {
 		return makeTexture(canvas, 1.4, 1);
 	}
 
-	const paper = new Color(variant % 3 === 0 ? "#d5c9ae" : variant % 3 === 1 ? "#d9d0bb" : "#cfc3a4");
-	const paperShadow = new Color(variant % 3 === 0 ? "#c3b491" : variant % 3 === 1 ? "#c9bea8" : "#bcad89");
-	const wood = new Color(variant % 2 === 0 ? "#6b4a2f" : "#5b3f28");
-	const woodDark = new Color(variant % 2 === 0 ? "#543723" : "#49311f");
+	const wallpaper = new Color("#d6c7ad");
+	const wood = new Color("#6a4a31");
+	const trim = new Color("#4f3724");
 
-	ctx.fillStyle = `#${paper.getHexString()}`;
-	ctx.fillRect(0, 0, canvas.width, canvas.height);
+	const splitY = Math.floor(canvas.height * 0.54);
+	ctx.fillStyle = `#${wallpaper.getHexString()}`;
+	ctx.fillRect(0, 0, canvas.width, splitY);
 	ctx.fillStyle = `#${wood.getHexString()}`;
-	ctx.fillRect(0, canvas.height / 2, canvas.width, canvas.height / 2);
-	fillNoiseRect(ctx, canvas.width, canvas.height / 2, seed + variant * 41, 0.05, 2);
-
-	ctx.strokeStyle = `rgba(${Math.round(paperShadow.r * 255)}, ${Math.round(paperShadow.g * 255)}, ${Math.round(paperShadow.b * 255)}, 0.22)`;
-	for (let y = 18; y < canvas.height / 2 - 10; y += 22) {
-		ctx.beginPath();
-		ctx.moveTo(0, y);
-		for (let x = 0; x <= canvas.width; x += 16) {
-			const offset = Math.sin((x + seed + variant * 11 + y) * 0.08) * 2;
-			ctx.lineTo(x, y + offset);
-		}
-		ctx.stroke();
-	}
-
-	ctx.fillStyle = `#${woodDark.getHexString()}`;
-	for (let x = 0; x < canvas.width; x += 21) {
-		const plankWidth = 16 + Math.floor(noise2(seed + variant * 71, x, 3) * 8);
-		ctx.fillRect(x, canvas.height / 2, 2, canvas.height / 2);
-		ctx.globalAlpha = 0.18;
-		ctx.fillRect(x + plankWidth - 3, canvas.height / 2, 2, canvas.height / 2);
-		ctx.globalAlpha = 1;
-	}
-
-	ctx.strokeStyle = "rgba(40, 25, 15, 0.35)";
-	for (let y = canvas.height / 2 + 14; y < canvas.height; y += 16) {
-		ctx.beginPath();
-		ctx.moveTo(0, y);
-		ctx.lineTo(canvas.width, y);
-		ctx.stroke();
-	}
-
-	ctx.fillStyle = "rgba(38, 27, 18, 0.45)";
-	ctx.fillRect(0, canvas.height / 2 - 4, canvas.width, 6);
+	ctx.fillRect(0, splitY, canvas.width, canvas.height - splitY);
+	ctx.fillStyle = `#${trim.getHexString()}`;
+	ctx.fillRect(0, splitY - 2, canvas.width, 4);
 	return makeTexture(canvas, 1.35, 1);
 }
 
 function createPlainCorridorWallTexture(seed: number): CanvasTexture {
+	void seed;
 	const canvas = document.createElement("canvas");
 	canvas.width = 128;
 	canvas.height = 256;
@@ -182,21 +94,30 @@ function createPlainCorridorWallTexture(seed: number): CanvasTexture {
 		return makeTexture(canvas, 1.4, 1);
 	}
 
-	ctx.fillStyle = "#d3d5d8";
-	ctx.fillRect(0, 0, canvas.width, canvas.height);
-	fillNoiseRect(ctx, canvas.width, canvas.height, seed + 1207, 0.035, 2);
-	ctx.strokeStyle = "rgba(154, 160, 166, 0.18)";
-	for (let y = 18; y < canvas.height; y += 22) {
-		ctx.beginPath();
-		ctx.moveTo(0, y);
-		ctx.lineTo(canvas.width, y);
-		ctx.stroke();
+	const upper = new Color("#d7dadd");
+	const lower = new Color("#8e949c");
+	const trim = new Color("#5c636c");
+	const baseboard = new Color("#474d55");
+	const splitY = Math.floor(canvas.height * 0.54);
+	ctx.fillStyle = `#${upper.getHexString()}`;
+	ctx.fillRect(0, 0, canvas.width, splitY);
+	ctx.fillStyle = `#${lower.getHexString()}`;
+	ctx.fillRect(0, splitY, canvas.width, canvas.height - splitY);
+	ctx.fillStyle = `#${trim.getHexString()}`;
+	ctx.fillRect(0, splitY - 2, canvas.width, 4);
+	ctx.fillStyle = `#${baseboard.getHexString()}`;
+	ctx.fillRect(0, canvas.height - 14, canvas.width, 14);
+	ctx.fillStyle = "rgba(70, 76, 84, 0.45)";
+	for (let x = 0; x < canvas.width; x += 32) {
+		ctx.fillRect(x, splitY + 2, 3, canvas.height - splitY - 16);
 	}
 
 	return makeTexture(canvas, 1.3, 1);
 }
 
 function createWallCapTexture(seed: number, variant: number): CanvasTexture {
+	void seed;
+	void variant;
 	const canvas = document.createElement("canvas");
 	canvas.width = 128;
 	canvas.height = 128;
@@ -205,28 +126,16 @@ function createWallCapTexture(seed: number, variant: number): CanvasTexture {
 		return makeTexture(canvas, 1.6, 1.6);
 	}
 
-	const wood = new Color(variant % 2 === 0 ? "#6b4a2f" : "#5b3f28");
-	const woodDark = new Color(variant % 2 === 0 ? "#543723" : "#49311f");
+	const wood = new Color("#5b3f28");
 
 	ctx.fillStyle = `#${wood.getHexString()}`;
 	ctx.fillRect(0, 0, canvas.width, canvas.height);
-	fillNoiseRect(ctx, canvas.width, canvas.height, seed + variant * 131, 0.08, 2);
-
-	for (let y = 10; y < canvas.height; y += 14) {
-		ctx.strokeStyle = `rgba(${Math.round(woodDark.r * 255)}, ${Math.round(woodDark.g * 255)}, ${Math.round(woodDark.b * 255)}, 0.28)`;
-		ctx.beginPath();
-		ctx.moveTo(0, y);
-		for (let x = 0; x <= canvas.width; x += 16) {
-			const offset = Math.sin((x + y + seed) * 0.07) * 2.5;
-			ctx.lineTo(x, y + offset);
-		}
-		ctx.stroke();
-	}
 
 	return makeTexture(canvas, 1.6, 1.6);
 }
 
 function createPlainCorridorWallCapTexture(seed: number): CanvasTexture {
+	void seed;
 	const canvas = document.createElement("canvas");
 	canvas.width = 128;
 	canvas.height = 128;
@@ -234,9 +143,8 @@ function createPlainCorridorWallCapTexture(seed: number): CanvasTexture {
 	if (!ctx) {
 		return makeTexture(canvas, 1.6, 1.6);
 	}
-	ctx.fillStyle = "#caced1";
+	ctx.fillStyle = "#7f858d";
 	ctx.fillRect(0, 0, canvas.width, canvas.height);
-	fillNoiseRect(ctx, canvas.width, canvas.height, seed + 1523, 0.03, 2);
 	return makeTexture(canvas, 1.8, 1.8);
 }
 

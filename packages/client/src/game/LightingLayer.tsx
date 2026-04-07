@@ -140,12 +140,12 @@ function CorridorFixture({ mode, fixture }: { mode: "off" | "memory" | "active";
 		<group position={[fixture.x, fixture.y, fixture.z]} rotation={[0, fixture.rotationY, 0]}>
 			<mesh castShadow receiveShadow>
 				<boxGeometry args={[0.08, 0.05, fixture.length]} />
-				<meshStandardMaterial
+				<meshToonMaterial
 					color={active ? "#dfefff" : memory ? "#7c8792" : "#4c545d"}
 					emissive={active ? "#d6ecff" : memory ? "#6f7a86" : "#000000"}
 					emissiveIntensity={active ? 1.4 : memory ? 0.18 : 0}
-					roughness={0.34}
-					metalness={0.08}
+				
+				
 				/>
 			</mesh>
 			{active ? <rectAreaLight args={["#cde6ff", 3.4, fixture.length * 0.92, 0.24]} position={[0, -0.1, 0]} rotation={[-Math.PI / 2, 0, 0]} /> : null}
@@ -161,16 +161,16 @@ function WallFixture({ mode, fixture }: { mode: "off" | "memory" | "active"; fix
 		<group position={[fixture.x, fixture.y, fixture.z]} rotation={[0, fixture.rotationY, 0]}>
 			<mesh castShadow receiveShadow position={[0, 0, 0]}>
 				<boxGeometry args={[0.18, 0.34, 0.28]} />
-				<meshStandardMaterial color="#8a6c4a" roughness={0.5} metalness={0.1} />
+				<meshToonMaterial color="#8a6c4a" />
 			</mesh>
 			<mesh castShadow={false} receiveShadow={false} position={[0, 0.16, 0.09]}>
 				<sphereGeometry args={[0.11, 12, 12]} />
-				<meshStandardMaterial
+				<meshToonMaterial
 					color={active ? "#ffe7ba" : memory ? "#988872" : "#6e6254"}
 					emissive={active ? "#ffd89a" : memory ? "#8e7b64" : "#000000"}
 					emissiveIntensity={active ? 2.13 : memory ? 0.12 : 0}
-					roughness={0.3}
-					metalness={0.02}
+				
+				
 				/>
 			</mesh>
 			{active ? <pointLight color="#ffd7a1" intensity={2.6} distance={14.2} decay={2} position={[0, 0.1, 0.46]} /> : null}
@@ -213,3 +213,6 @@ export function LightingLayer({
 		</group>
 	);
 }
+
+
+

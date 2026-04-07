@@ -32,11 +32,11 @@ function GroundSuitcase({ suitcase, visible }: { suitcase: SuitcaseState; visibl
 		<group ref={groupRef} position={[suitcase.worldX, 0.18, suitcase.worldZ]} rotation={[Math.PI / 2, 0, 0]}>
 			<mesh castShadow receiveShadow>
 				<boxGeometry args={[0.75, 0.5, 0.15]} />
-				<meshStandardMaterial color="#a9b5c2" emissive="#4a5562" emissiveIntensity={0.18} roughness={0.3} metalness={0.56} />
+				<meshToonMaterial color="#a9b5c2" emissive="#4a5562" emissiveIntensity={0.18} />
 			</mesh>
 			<mesh position={[0, 0.24, 0]} castShadow receiveShadow>
 				<torusGeometry args={[0.12, 0.02, 10, 18]} />
-				<meshStandardMaterial color="#c3ccd6" roughness={0.28} metalness={0.62} />
+				<meshToonMaterial color="#c3ccd6" />
 			</mesh>
 		</group>
 	);
@@ -68,3 +68,6 @@ export function SuitcaseLayer({
 		</group>
 	);
 }
+
+
+

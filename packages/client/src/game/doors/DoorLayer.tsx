@@ -3,7 +3,7 @@ import { useFrame } from "@react-three/fiber";
 import { Base, Geometry, Subtraction } from "@react-three/csg";
 import type { DoorPlacement, DoorState, GameServerMessages } from "@vibejam/shared";
 import { CELL_SIZE, ROOM_HEIGHT, generateDoorPlacements, generateMapLayout } from "@vibejam/shared";
-import { Group, MathUtils, MeshStandardMaterial, type Texture } from "three";
+import { Group, MathUtils, MeshToonMaterial, type Texture } from "three";
 import { useRoom, useRoomState } from "../../colyseus/roomContext";
 import { schemaMapValues } from "../../colyseus/schemaMap";
 import { useEmbassyTextures } from "../decor";
@@ -62,23 +62,23 @@ function makeWallMaterials(
 	const negativeTint = fogTint(negativeFog);
 	const capTint = fogTint(mergeFog(positiveFog, negativeFog));
 	return [
-		new MeshStandardMaterial({ map: positiveNormal, color: positiveTint, roughness: 0.92, metalness: 0.02 }),
-		new MeshStandardMaterial({ map: negativeNormal, color: negativeTint, roughness: 0.92, metalness: 0.02 }),
-		new MeshStandardMaterial({ map: cap, color: capTint, roughness: 0.88, metalness: 0.02 }),
-		new MeshStandardMaterial({ map: cap, color: capTint, roughness: 0.88, metalness: 0.02 }),
-		new MeshStandardMaterial({ map: cap, color: capTint, roughness: 0.9, metalness: 0.02 }),
-		new MeshStandardMaterial({ map: cap, color: capTint, roughness: 0.9, metalness: 0.02 }),
+		new MeshToonMaterial({ map: positiveNormal, color: positiveTint}),
+		new MeshToonMaterial({ map: negativeNormal, color: negativeTint}),
+		new MeshToonMaterial({ map: cap, color: capTint}),
+		new MeshToonMaterial({ map: cap, color: capTint}),
+		new MeshToonMaterial({ map: cap, color: capTint}),
+		new MeshToonMaterial({ map: cap, color: capTint}),
 	];
 }
 
 function makeLeafMaterials(positiveNormal: string, negativeNormal: string, edge: string, metal: string) {
 	return [
-		new MeshStandardMaterial({ color: positiveNormal, roughness: 0.62, metalness: 0.06 }),
-		new MeshStandardMaterial({ color: negativeNormal, roughness: 0.62, metalness: 0.06 }),
-		new MeshStandardMaterial({ color: edge, roughness: 0.58, metalness: 0.08 }),
-		new MeshStandardMaterial({ color: metal, roughness: 0.42, metalness: 0.3 }),
-		new MeshStandardMaterial({ color: edge, roughness: 0.58, metalness: 0.08 }),
-		new MeshStandardMaterial({ color: edge, roughness: 0.58, metalness: 0.08 }),
+		new MeshToonMaterial({ color: positiveNormal}),
+		new MeshToonMaterial({ color: negativeNormal}),
+		new MeshToonMaterial({ color: edge}),
+		new MeshToonMaterial({ color: metal}),
+		new MeshToonMaterial({ color: edge}),
+		new MeshToonMaterial({ color: edge}),
 	];
 }
 
@@ -104,7 +104,7 @@ function PortalFrame({
 		[negativeFog, negativeNormalWall, positiveFog, positiveNormalWall, sideCap],
 	);
 	const capMaterial = useMemo(
-		() => new MeshStandardMaterial({ map: sideCap, color: fogTint(mergeFog(positiveFog, negativeFog)), roughness: 0.88, metalness: 0.02 }),
+		() => new MeshToonMaterial({ map: sideCap, color: fogTint(mergeFog(positiveFog, negativeFog))}),
 		[negativeFog, positiveFog, sideCap],
 	);
 	const openingCenterY = openingHeight / 2 - ROOM_HEIGHT / 2;
@@ -154,11 +154,11 @@ function DoorLeaf({
 		[edgeColor, metalColor, negativeNormalColor, positiveNormalColor],
 	);
 	const panelMaterial = useMemo(
-		() => new MeshStandardMaterial({ color: edgeColor, roughness: 0.56, metalness: 0.08 }),
+		() => new MeshToonMaterial({ color: edgeColor}),
 		[edgeColor],
 	);
 	const knobMaterial = useMemo(
-		() => new MeshStandardMaterial({ color: metalColor, roughness: 0.35, metalness: 0.42 }),
+		() => new MeshToonMaterial({ color: metalColor}),
 		[metalColor],
 	);
 
@@ -492,3 +492,5 @@ export function DoorLayer({
 		</group>
 	);
 }
+
+

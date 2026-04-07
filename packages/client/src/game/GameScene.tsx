@@ -31,6 +31,7 @@ import { MapLevel } from "./MapLevel";
 import { SuitcaseLayer } from "./suitcases/SuitcaseLayer";
 import { VaultLayer } from "./vaults/VaultLayer";
 import { FileCabinetLayer } from "./fileCabinets/FileCabinetLayer";
+import { CelRenderLayer } from "./celRender";
 
 const MOVE_SPEED = 12;
 const CAMERA_OFFSET = { x: 0, y: 8.5, z: 14 };
@@ -343,27 +344,27 @@ function PlayerVisual({
 			<group ref={visualRef}>
 				<mesh castShadow={isLocal} receiveShadow position={[0, 0.8, 0]}>
 					<coneGeometry args={[0.45, 1.6, 10]} />
-					<meshStandardMaterial color={colorObj} roughness={0.45} metalness={0.1} />
+					<meshToonMaterial color={colorObj} />
 				</mesh>
 				<group position={[0, 1.02, 0.3]}>
 					<group ref={leftEyeRef} position={[-0.13, 0, -0.05]}>
 						<mesh castShadow={isLocal}>
 							<sphereGeometry args={[0.12, 18, 18]} />
-							<meshStandardMaterial color="#fffaf0" roughness={0.55} metalness={0} />
+							<meshToonMaterial color="#fffaf0" />
 						</mesh>
 						<mesh position={[0.01, -0.01, 0.075]}>
 							<sphereGeometry args={[0.048, 14, 14]} />
-							<meshStandardMaterial color="#111111" roughness={0.35} metalness={0.05} />
+							<meshToonMaterial color="#111111" />
 						</mesh>
 					</group>
 					<group ref={rightEyeRef} position={[0.13, 0, -0.05]}>
 						<mesh castShadow={isLocal}>
 							<sphereGeometry args={[0.12, 18, 18]} />
-							<meshStandardMaterial color="#fffaf0" roughness={0.55} metalness={0} />
+							<meshToonMaterial color="#fffaf0" />
 						</mesh>
 						<mesh position={[-0.01, -0.01, 0.075]}>
 							<sphereGeometry args={[0.048, 14, 14]} />
-							<meshStandardMaterial color="#111111" roughness={0.35} metalness={0.05} />
+							<meshToonMaterial color="#111111" />
 						</mesh>
 					</group>
 				</group>
@@ -371,17 +372,17 @@ function PlayerVisual({
 					<group position={[0.52, 0.51, 0.08]} rotation={[0, Math.PI / 2, 0]}>
 						<mesh castShadow={isLocal} receiveShadow>
 							<boxGeometry args={[0.62, 0.06, 0.38]} />
-							<meshStandardMaterial
+							<meshToonMaterial
 								color={new Color(KEYCARD_COLOR_BY_KIND[carriedKeycardColor])}
 								emissive={new Color(KEYCARD_COLOR_BY_KIND[carriedKeycardColor])}
 								emissiveIntensity={0.45}
-								roughness={0.38}
-								metalness={0.24}
+							
+							
 							/>
 						</mesh>
 						<mesh position={[0, 0.036, 0]} castShadow={isLocal} receiveShadow>
 							<boxGeometry args={[0.22, 0.016, 0.26]} />
-							<meshStandardMaterial color="#f4f6fa" roughness={0.85} metalness={0.03} />
+							<meshToonMaterial color="#f4f6fa" />
 						</mesh>
 					</group>
 				) : null}
@@ -391,11 +392,11 @@ function PlayerVisual({
 							<group rotation={[0, 0, -0.1]}>
 								<mesh castShadow={isLocal} receiveShadow>
 									<boxGeometry args={[0.75, 0.5, 0.15]} />
-									<meshStandardMaterial color="#a9b5c2" emissive="#4a5562" emissiveIntensity={0.18} roughness={0.3} metalness={0.56} />
+									<meshToonMaterial color="#a9b5c2" emissive="#4a5562" emissiveIntensity={0.18} />
 								</mesh>
 								<mesh position={[0, 0.24, 0]} castShadow={isLocal} receiveShadow>
 									<torusGeometry args={[0.12, 0.02, 10, 18]} />
-									<meshStandardMaterial color="#c3ccd6" roughness={0.28} metalness={0.62} />
+									<meshToonMaterial color="#c3ccd6" />
 								</mesh>
 							</group>
 						</group>
@@ -406,7 +407,7 @@ function PlayerVisual({
 				<group position={[0, 2.45, 0]}>
 					<mesh position={[0, 0, 0]} renderOrder={1}>
 						<circleGeometry args={[0.38, 40]} />
-						<meshStandardMaterial color="#1f2832" roughness={0.55} metalness={0.2} side={DoubleSide} depthWrite={false} />
+						<meshToonMaterial color="#1f2832" side={DoubleSide} depthWrite={false} />
 					</mesh>
 					<mesh position={[0, 0.035, 0]} rotation={[0, 0, 0]} renderOrder={2}>
 						<circleGeometry
@@ -417,12 +418,12 @@ function PlayerVisual({
 								-Math.PI * 2 * Math.max(0, Math.min(1, interactionProgress ?? 0)),
 							]}
 						/>
-						<meshStandardMaterial
+						<meshToonMaterial
 							color="#7cd6ff"
 							emissive="#2db9ff"
 							emissiveIntensity={0.9}
-							roughness={0.32}
-							metalness={0.18}
+						
+						
 							side={DoubleSide}
 							depthWrite={false}
 							polygonOffset
@@ -864,6 +865,7 @@ function SceneContent({
 
 	return (
 		<>
+			<CelRenderLayer config={{ bandCount: 3, bandGamma: 1.45 }} />
 			<ThirdPersonCamera targetRef={localVisualRef} enabled={!debugCameraEnabled} />
 			<DebugOrbitCamera targetRef={localVisualRef} enabled={debugCameraEnabled} />
 			<MovementInput inputRef={inputRef} enabled={!debugCameraEnabled} inputSource={inputSource} />
@@ -945,3 +947,6 @@ export function GameScene({
 		</Canvas>
 	);
 }
+
+
+
