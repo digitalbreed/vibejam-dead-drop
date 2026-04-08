@@ -19,6 +19,7 @@ import {
 	MeshBasicMaterial,
 	MeshToonMaterial,
 	Object3D,
+	NearestFilter,
 	Vector2,
 	Vector3,
 	BoxGeometry,
@@ -33,6 +34,8 @@ const SOUTH_WALL_CUTOUT_SOFTNESS = 36;
 const PLAYER_CONE_TIP_OFFSET_Y = 1.3;
 const OUTLINE_COLOR = "#000000";
 const OUTLINE_THICKNESS = 0.028;
+const WALL_THICKNESS = 0.14;
+const CORNER_FILLER_SIZE = WALL_THICKNESS / 2;
 
 function fogTint(fog: FogState): string {
 	return fog === "visible" ? "#ffffff" : "#67707a";
@@ -341,6 +344,15 @@ type WallAtomic = {
 	cutoutArea: string | undefined;
 };
 
+type WallCornerCap = {
+	x: number;
+	z: number;
+	offsetX: number;
+	offsetZ: number;
+	style: number;
+	cellKeys: string[];
+};
+
 function buildWallAtomics(layout: MapLayout, areaInfo: { labelByCell: Map<string, string> }) {
 	const occ = layoutOccupancy(layout);
 	const rooms = layoutRoomMap(layout);
@@ -489,7 +501,98 @@ function buildWallAtomics(layout: MapLayout, areaInfo: { labelByCell: Map<string
 		});
 	}
 
-	return { runs, decorIds };
+	type CornerVertexBucket = {
+		xCount: number;
+		zCount: number;
+		xDirs: Set<number>;
+		zDirs: Set<number>;
+		styleVotes: Map<number, number>;
+		cellKeys: Set<string>;
+	};
+	const vertexBuckets = new Map<string, CornerVertexBucket>();
+	const vertexKey = (vx: number, vz: number) => `${vx.toFixed(3)},${vz.toFixed(3)}`;
+	const doorVertexKeys = new Set<string>();
+	for (const edgeKey of layout.doorEdgeKeys) {
+		const [partA, partB] = edgeKey.split("|");
+		if (!partA || !partB) continue;
+		const [ix1, iz1] = partA.split(",").map(Number);
+		const [ix2, iz2] = partB.split(",").map(Number);
+		if (ix1 === ix2) {
+			const line = (iz1 + iz2) / 2;
+			doorVertexKeys.add(vertexKey(ix1 - 0.5, line));
+			doorVertexKeys.add(vertexKey(ix1 + 0.5, line));
+		} else {
+			const line = (ix1 + ix2) / 2;
+			doorVertexKeys.add(vertexKey(line, iz1 - 0.5));
+			doorVertexKeys.add(vertexKey(line, iz1 + 0.5));
+		}
+	}
+	const touchVertex = (vx: number, vz: number, orientation: "x" | "z", dir: number, a: AtomicCellEdge) => {
+		const key = vertexKey(vx, vz);
+		const bucket = vertexBuckets.get(key) ?? {
+			xCount: 0,
+			zCount: 0,
+			xDirs: new Set<number>(),
+			zDirs: new Set<number>(),
+			styleVotes: new Map<number, number>(),
+			cellKeys: new Set<string>(),
+		};
+		if (orientation === "x") {
+			bucket.xCount++;
+			bucket.xDirs.add(dir);
+		} else {
+			bucket.zCount++;
+			bucket.zDirs.add(dir);
+		}
+		if (a.cellKeyA) {
+			bucket.cellKeys.add(a.cellKeyA);
+		}
+		if (a.cellKeyB) {
+			bucket.cellKeys.add(a.cellKeyB);
+		}
+		bucket.styleVotes.set(a.style, (bucket.styleVotes.get(a.style) ?? 0) + 1);
+		vertexBuckets.set(key, bucket);
+	};
+	for (const a of atomics) {
+		if (a.orientation === "x") {
+			// x-oriented edge runs along z; at start endpoint edge continues toward +z, at end toward -z.
+			touchVertex(a.line, a.t - 0.5, "x", 1, a);
+			touchVertex(a.line, a.t + 0.5, "x", -1, a);
+		} else {
+			// z-oriented edge runs along x; at start endpoint edge continues toward +x, at end toward -x.
+			touchVertex(a.t - 0.5, a.line, "z", 1, a);
+			touchVertex(a.t + 0.5, a.line, "z", -1, a);
+		}
+	}
+
+	const corners: WallCornerCap[] = [];
+	for (const [key, bucket] of vertexBuckets) {
+		if (bucket.xCount !== 1 || bucket.zCount !== 1) continue;
+		if (doorVertexKeys.has(key)) continue;
+		const xDir = bucket.xDirs.values().next().value as number | undefined;
+		const zDir = bucket.zDirs.values().next().value as number | undefined;
+		if ((xDir !== 1 && xDir !== -1) || (zDir !== 1 && zDir !== -1)) continue;
+		let style = 0;
+		let bestVotes = -1;
+		for (const [candidateStyle, votes] of bucket.styleVotes) {
+			if (votes > bestVotes || (votes === bestVotes && candidateStyle < style)) {
+				style = candidateStyle;
+				bestVotes = votes;
+			}
+		}
+		const [vx, vz] = key.split(",").map(Number);
+		corners.push({
+			x: vx * CELL_SIZE,
+			z: vz * CELL_SIZE,
+			// Fill only the missing quadrant (opposite of the two wall directions).
+			offsetX: (-zDir * CORNER_FILLER_SIZE) / 2,
+			offsetZ: (-xDir * CORNER_FILLER_SIZE) / 2,
+			style,
+			cellKeys: [...bucket.cellKeys],
+		});
+	}
+
+	return { runs, corners, decorIds };
 }
 
 function WallsInstanced({
@@ -509,7 +612,7 @@ function WallsInstanced({
 	playerPositionRef: MutableRefObject<Vector3>;
 	outlinesEnabled: boolean;
 }) {
-	const { runs } = useMemo(() => {
+	const { runs, corners } = useMemo(() => {
 		const t0 = nowMs();
 		const built = buildWallAtomics(layout, areaInfo);
 		if (isDev()) {
@@ -531,17 +634,39 @@ function WallsInstanced({
 			if (r.orientation === "x") {
 				temp.position.set(r.line * CELL_SIZE, ROOM_HEIGHT / 2, centerT * CELL_SIZE);
 				temp.quaternion.identity();
-				temp.scale.set(0.14, ROOM_HEIGHT, length);
+				temp.scale.set(WALL_THICKNESS, ROOM_HEIGHT, length);
 			} else {
 				temp.position.set(centerT * CELL_SIZE, ROOM_HEIGHT / 2, r.line * CELL_SIZE);
 				temp.quaternion.setFromAxisAngle(new Vector3(0, 1, 0), Math.PI / 2);
-				temp.scale.set(0.14, ROOM_HEIGHT, length);
+				temp.scale.set(WALL_THICKNESS, ROOM_HEIGHT, length);
 			}
 			temp.updateMatrix();
 			result.push(temp.matrix.clone());
 		}
 		return result;
 	}, [runs]);
+	const cornerBaseMatrices = useMemo(() => {
+		const temp = new Object3D();
+		const result: Matrix4[] = [];
+		for (const c of corners) {
+			temp.position.set(c.x + c.offsetX, ROOM_HEIGHT / 2, c.z + c.offsetZ);
+			temp.quaternion.identity();
+			temp.scale.set(CORNER_FILLER_SIZE, ROOM_HEIGHT, CORNER_FILLER_SIZE);
+			temp.updateMatrix();
+			result.push(temp.matrix.clone());
+		}
+		return result;
+	}, [corners]);
+	const cornersByStyle = useMemo(() => {
+		const grouped = new Map<number, { indices: number[] }>();
+		for (let i = 0; i < corners.length; i++) {
+			const c = corners[i]!;
+			const bucket = grouped.get(c.style) ?? { indices: [] as number[] };
+			bucket.indices.push(i);
+			grouped.set(c.style, bucket);
+		}
+		return grouped;
+	}, [corners]);
 
 	const runsByStyle = useMemo(() => {
 		const map = new Map<number, { indices: number[] }>();
@@ -590,6 +715,32 @@ function WallsInstanced({
 	const cutoutWallRefs = useRef(new Map<number, InstancedMesh>());
 	const normalWallOutlineRefs = useRef(new Map<number, InstancedMesh>());
 	const cutoutWallOutlineRefs = useRef(new Map<number, InstancedMesh>());
+	const cornerFillerRefs = useRef(new Map<number, InstancedMesh>());
+	const cornerFillerOutlineRefs = useRef(new Map<number, InstancedMesh>());
+	const cornerFillerMaterialsByStyle = useMemo(() => {
+		const materials = new Map<number, MeshToonMaterial | MeshToonMaterial[]>();
+		for (const [style] of cornersByStyle) {
+			const tex = textures.walls[style];
+			if (!tex) continue;
+			const fillerSideTex = tex.clone();
+			fillerSideTex.generateMipmaps = false;
+			fillerSideTex.minFilter = NearestFilter;
+			fillerSideTex.magFilter = NearestFilter;
+			fillerSideTex.needsUpdate = true;
+			const side = new MeshToonMaterial({
+				map: fillerSideTex,
+				color: new Color("#ffffff"),
+				vertexColors: false,
+			});
+			const top = createSolidToonMaterial();
+			materials.set(
+				style,
+				// Match wall face assignment so filler tops don't show wall UV projection.
+				[side, side, top, top, side, side],
+			);
+		}
+		return materials;
+	}, [cornersByStyle, textures.walls]);
 
 	const hiddenMatrix = useMemo(() => new Matrix4().makeScale(0, 0, 0), []);
 
@@ -639,6 +790,35 @@ function WallsInstanced({
 			}
 		}
 	}, [baseMatrixByRun, currentArea, fogByCell, hiddenMatrix, outlinesEnabled, runs, runsByStyle]);
+
+	useLayoutEffect(() => {
+		const tempColor = new Color();
+		for (const [style, { indices }] of cornersByStyle) {
+			const mesh = cornerFillerRefs.current.get(style);
+			const meshOutline = cornerFillerOutlineRefs.current.get(style);
+			if (!mesh || !meshOutline) continue;
+			for (let localIndex = 0; localIndex < indices.length; localIndex++) {
+				const cornerIndex = indices[localIndex]!;
+				const corner = corners[cornerIndex]!;
+				let fog: FogState = "hidden";
+				for (const cellKey of corner.cellKeys) {
+					fog = mergeFog(fog, fogByCell.get(cellKey));
+					if (fog === "visible") break;
+				}
+				const visible = fog !== "hidden";
+				mesh.setMatrixAt(localIndex, visible ? cornerBaseMatrices[cornerIndex]! : hiddenMatrix);
+				const active = outlinesEnabled && visible && corner.cellKeys.some((cellKey) => areaInfo.labelByCell.get(cellKey) === currentArea);
+				meshOutline.setMatrixAt(localIndex, active ? cornerBaseMatrices[cornerIndex]! : hiddenMatrix);
+				tempColor.set(fogTint(fog === "hidden" ? "explored" : fog));
+				mesh.setColorAt(localIndex, tempColor);
+			}
+			mesh.instanceMatrix.needsUpdate = true;
+			meshOutline.instanceMatrix.needsUpdate = true;
+			if ((mesh as any).instanceColor) {
+				(mesh as any).instanceColor.needsUpdate = true;
+			}
+		}
+	}, [areaInfo.labelByCell, cornerBaseMatrices, corners, cornersByStyle, currentArea, fogByCell, hiddenMatrix, outlinesEnabled]);
 
 	return (
 		<group>
@@ -693,6 +873,34 @@ function WallsInstanced({
 					</group>
 				);
 			})}
+			{[...cornersByStyle.entries()].map(([style, { indices }]) => {
+				const material = cornerFillerMaterialsByStyle.get(style);
+				if (!material) return null;
+				return (
+					<group key={`corner-filler-style-${style}`}>
+						<instancedMesh
+							ref={(mesh) => {
+								if (mesh) cornerFillerRefs.current.set(style, mesh);
+								else cornerFillerRefs.current.delete(style);
+							}}
+							args={[unitBox, material, indices.length]}
+							frustumCulled={false}
+							castShadow
+							receiveShadow
+						/>
+						<instancedMesh
+							ref={(mesh) => {
+								if (mesh) cornerFillerOutlineRefs.current.set(style, mesh);
+								else cornerFillerOutlineRefs.current.delete(style);
+							}}
+							args={[unitBox, outlineMaterial, indices.length]}
+							frustumCulled={false}
+							castShadow
+							receiveShadow
+						/>
+					</group>
+				);
+			})}
 		</group>
 	);
 }
@@ -735,6 +943,3 @@ export function MapLevel({
 		</group>
 	);
 }
-
-
-
