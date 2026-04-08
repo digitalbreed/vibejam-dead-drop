@@ -53,6 +53,7 @@ function GroundSuitcase({ suitcase, visible, outlined }: { suitcase: SuitcaseSta
 export function SuitcaseLayer({
 	fogByCell,
 	revealAll,
+	forceAllOutlined = false,
 	areaInfo,
 	currentArea,
 	audioEnabled = true,
@@ -60,6 +61,7 @@ export function SuitcaseLayer({
 }: {
 	fogByCell: Map<string, FogState>;
 	revealAll: boolean;
+	forceAllOutlined?: boolean;
 	areaInfo: { labelByCell: Map<string, string> };
 	currentArea: string;
 	audioEnabled?: boolean;
@@ -77,7 +79,9 @@ export function SuitcaseLayer({
 				}
 				const visible = revealAll || fogAtPosition(fogByCell, suitcase.worldX, suitcase.worldZ) !== "hidden";
 				const cellKey = `${Math.round(suitcase.worldX / CELL_SIZE)},${Math.round(suitcase.worldZ / CELL_SIZE)}`;
-				const outlined = outlinesEnabled && !revealAll && areaInfo.labelByCell.get(cellKey) === currentArea;
+				const outlined =
+					outlinesEnabled &&
+					(forceAllOutlined || (!revealAll && areaInfo.labelByCell.get(cellKey) === currentArea));
 				const renderKey = suitcase.suitcaseId || suitcase.id || "suitcase-fallback";
 				return <GroundSuitcase key={renderKey} suitcase={suitcase} visible={visible} outlined={outlined} />;
 			})}

@@ -6,6 +6,8 @@ export {
 	SuitcaseState,
 	VaultState,
 	FileCabinetState,
+	TrapState,
+	TrapPointState,
 } from "./schema/Interactables.js";
 export * from "./map/index.js";
 
@@ -18,6 +20,7 @@ export type GameClientMessages = {
 	input: { x: number; z: number };
 	interact: {};
 	interact_hold: { active: boolean };
+	trap_hold: { active: boolean };
 };
 
 /** Server -> client transient gameplay events. */
@@ -70,5 +73,9 @@ export type GameServerMessages = {
 		| {
 				event: "keycard_first_pickup";
 				color: string;
+		  }
+		| {
+				event: "agent_died";
+				agentCode: string;
 		  };
 };

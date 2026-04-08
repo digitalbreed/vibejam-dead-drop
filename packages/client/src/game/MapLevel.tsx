@@ -191,6 +191,7 @@ function FloorsInstanced({
 	fogByCell,
 	areaInfo,
 	currentArea,
+	forceAllOutlined,
 	outlinesEnabled,
 }: {
 	layout: MapLayout;
@@ -198,6 +199,7 @@ function FloorsInstanced({
 	fogByCell: Map<string, FogState>;
 	areaInfo: { labelByCell: Map<string, string> };
 	currentArea: string;
+	forceAllOutlined: boolean;
 	outlinesEnabled: boolean;
 }) {
 	const decorIds = useMemo(() => computeDecorIds(layout), [layout]);
@@ -279,7 +281,7 @@ function FloorsInstanced({
 				floorMesh.setMatrixAt(i, visible ? base : hiddenMatrix);
 				floorMesh.setColorAt(i, new Color(fogTint(fog === "hidden" ? "explored" : fog)));
 
-				const active = outlinesEnabled && visible && inst.areaLabel === currentArea;
+				const active = outlinesEnabled && visible && (forceAllOutlined || inst.areaLabel === currentArea);
 				outlineMesh.setMatrixAt(i, active ? base : hiddenMatrix);
 			}
 
@@ -295,7 +297,7 @@ function FloorsInstanced({
 				console.debug(`[MapLevel] floors instanced update ${elapsed.toFixed(1)}ms`);
 			}
 		}
-	}, [baseMatrixByCellKey, currentArea, fogByCell, instancesByStyle, outlinesEnabled]);
+	}, [baseMatrixByCellKey, currentArea, fogByCell, forceAllOutlined, instancesByStyle, outlinesEnabled]);
 
 	return (
 		<group>
@@ -602,6 +604,7 @@ function WallsInstanced({
 	areaInfo,
 	currentArea,
 	playerPositionRef,
+	forceAllOutlined,
 	outlinesEnabled,
 }: {
 	layout: MapLayout;
@@ -610,6 +613,7 @@ function WallsInstanced({
 	areaInfo: { labelByCell: Map<string, string> };
 	currentArea: string;
 	playerPositionRef: MutableRefObject<Vector3>;
+	forceAllOutlined: boolean;
 	outlinesEnabled: boolean;
 }) {
 	const { runs, corners } = useMemo(() => {
@@ -759,7 +763,8 @@ function WallsInstanced({
 				const r = runs[runIndex]!;
 				const fog = mergeFog(fogByCell.get(r.cellKeyA ?? ""), r.cellKeyB ? fogByCell.get(r.cellKeyB) : "hidden");
 				const visible = fog !== "hidden";
-				const active = outlinesEnabled && visible && (r.areaA === currentArea || r.areaB === currentArea);
+				const active =
+					outlinesEnabled && visible && (forceAllOutlined || r.areaA === currentArea || r.areaB === currentArea);
 				const useCutout = visible && r.cutoutArea === currentArea;
 				const wallBase = baseMatrixByRun[runIndex] ?? hiddenMatrix;
 
@@ -789,7 +794,7 @@ function WallsInstanced({
 				console.debug(`[MapLevel] walls instanced update ${elapsed.toFixed(1)}ms`);
 			}
 		}
-	}, [baseMatrixByRun, currentArea, fogByCell, hiddenMatrix, outlinesEnabled, runs, runsByStyle]);
+	}, [baseMatrixByRun, currentArea, fogByCell, forceAllOutlined, hiddenMatrix, outlinesEnabled, runs, runsByStyle]);
 
 	useLayoutEffect(() => {
 		const tempColor = new Color();
@@ -807,7 +812,10 @@ function WallsInstanced({
 				}
 				const visible = fog !== "hidden";
 				mesh.setMatrixAt(localIndex, visible ? cornerBaseMatrices[cornerIndex]! : hiddenMatrix);
-				const active = outlinesEnabled && visible && corner.cellKeys.some((cellKey) => areaInfo.labelByCell.get(cellKey) === currentArea);
+				const active =
+					outlinesEnabled &&
+					visible &&
+					(forceAllOutlined || corner.cellKeys.some((cellKey) => areaInfo.labelByCell.get(cellKey) === currentArea));
 				meshOutline.setMatrixAt(localIndex, active ? cornerBaseMatrices[cornerIndex]! : hiddenMatrix);
 				tempColor.set(fogTint(fog === "hidden" ? "explored" : fog));
 				mesh.setColorAt(localIndex, tempColor);
@@ -818,7 +826,7 @@ function WallsInstanced({
 				(mesh as any).instanceColor.needsUpdate = true;
 			}
 		}
-	}, [areaInfo.labelByCell, cornerBaseMatrices, corners, cornersByStyle, currentArea, fogByCell, hiddenMatrix, outlinesEnabled]);
+	}, [areaInfo.labelByCell, cornerBaseMatrices, corners, cornersByStyle, currentArea, fogByCell, forceAllOutlined, hiddenMatrix, outlinesEnabled]);
 
 	return (
 		<group>
@@ -911,6 +919,7 @@ export function MapLevel({
 	areaInfo,
 	currentArea,
 	playerPositionRef,
+	forceAllOutlined = false,
 	outlinesEnabled = true,
 }: {
 	layout: MapLayout;
@@ -918,6 +927,7 @@ export function MapLevel({
 	areaInfo: { labelByCell: Map<string, string> };
 	currentArea: string;
 	playerPositionRef: MutableRefObject<Vector3>;
+	forceAllOutlined?: boolean;
 	outlinesEnabled?: boolean;
 }) {
 	const textures = useEmbassyTextures(layout.seed);
@@ -929,6 +939,7 @@ export function MapLevel({
 				fogByCell={fogByCell}
 				areaInfo={areaInfo}
 				currentArea={currentArea}
+				forceAllOutlined={forceAllOutlined}
 				outlinesEnabled={outlinesEnabled}
 			/>
 			<WallsInstanced
@@ -938,6 +949,7 @@ export function MapLevel({
 				areaInfo={areaInfo}
 				currentArea={currentArea}
 				playerPositionRef={playerPositionRef}
+				forceAllOutlined={forceAllOutlined}
 				outlinesEnabled={outlinesEnabled}
 			/>
 		</group>

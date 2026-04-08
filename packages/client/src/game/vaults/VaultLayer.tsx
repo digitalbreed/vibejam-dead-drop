@@ -498,6 +498,7 @@ function VaultItem({
 export function VaultLayer({
 	fogByCell: _fogByCell,
 	revealAll: _revealAll,
+	forceAllOutlined = false,
 	areaInfo,
 	currentArea,
 	audioEnabled = true,
@@ -505,6 +506,7 @@ export function VaultLayer({
 }: {
 	fogByCell: Map<string, "hidden" | "explored" | "visible">;
 	revealAll: boolean;
+	forceAllOutlined?: boolean;
 	areaInfo: { labelByCell: Map<string, string> };
 	currentArea: string;
 	audioEnabled?: boolean;
@@ -610,7 +612,9 @@ export function VaultLayer({
 	}, [room]);
 
 	const cellKey = `${Math.round(vault.x / CELL_SIZE)},${Math.round(vault.z / CELL_SIZE)}`;
-	const outlined = outlinesEnabled && !_revealAll && areaInfo.labelByCell.get(cellKey) === currentArea;
+	const outlined =
+		outlinesEnabled &&
+		(forceAllOutlined || (!_revealAll && areaInfo.labelByCell.get(cellKey) === currentArea));
 
 	return (
 		<group>
@@ -626,6 +630,5 @@ export function VaultLayer({
 		</group>
 	);
 }
-
 
 

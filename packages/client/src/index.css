@@ -120,3 +120,15 @@ button {
 		transform: translateX(calc(-100% - 100vw));
 	}
 }
+
+@keyframes trap-hud-blink {
+	0% {
+		filter: brightness(1);
+	}
+	50% {
+		filter: brightness(1.55);
+	}
+	100% {
+		filter: brightness(1);
+	}
+}

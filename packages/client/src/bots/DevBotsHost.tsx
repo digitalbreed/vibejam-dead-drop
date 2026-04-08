@@ -74,9 +74,24 @@ function useWanderBotInput(inputSource: KeyboardInputSource & { emitDown: (event
 function BotViewport({ slot }: { slot: number }) {
 	const { room, isConnecting, error } = useRoom();
 	const phase = useRoomState((state) => state.phase);
+	const localIsAlive = useRoomState((state) => {
+		const sessionId = room?.sessionId;
+		if (!sessionId) {
+			return true;
+		}
+		const players = state?.players;
+		if (!players) {
+			return true;
+		}
+		const player =
+			typeof players.get === "function"
+				? players.get(sessionId)
+				: (players as Record<string, any>)[sessionId];
+		return player?.isAlive !== false;
+	});
 	const [team, setTeam] = useState<GameTeam | null>(null);
 	const inputSource = useMemo(() => createVirtualKeyboardInputSource(), []);
-	useWanderBotInput(inputSource, !!room && !isConnecting && !error);
+	useWanderBotInput(inputSource, !!room && !isConnecting && !error && localIsAlive !== false);
 
 	useEffect(() => {
 		const cached = getLatestRoleAssignment(room);
@@ -105,6 +120,8 @@ function BotViewport({ slot }: { slot: number }) {
 	const statusText =
 		phase === "lobby"
 			? `Bot ${slot + 1} waiting`
+			: localIsAlive === false
+				? `Bot ${slot + 1} dead`
 			: roleLabel
 				? `Bot ${slot + 1} (${roleLabel}) active`
 				: `Bot ${slot + 1} active`;
@@ -178,7 +195,7 @@ function BotClientSlot({ roomId, slot }: { roomId: string; slot: number }) {
 	);
 }
 
-export function DevBotsHost() {
+export function DevBotsHost({ visible = true }: { visible?: boolean }) {
 	const { room } = useRoom();
 	const phase = useRoomState((state) => state.phase);
 	const playerCount = useRoomState((state) => schemaMapValues(state.players).length);
@@ -214,7 +231,7 @@ export function DevBotsHost() {
 				width: "24vw",
 				minWidth: 220,
 				maxWidth: 360,
-				display: "flex",
+				display: visible ? "flex" : "none",
 				flexDirection: "column",
 				gap: 10,
 				pointerEvents: "none",

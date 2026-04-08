@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState, type CSSProperties } from "react";
 
 type TitleScreenProps = {
-	onJoin: () => void;
+	onJoin: (params: { operatorName: string; gameCode: string }) => void;
 };
 
 type ShredParticle = {
@@ -245,7 +245,12 @@ export function TitleScreen({ onJoin }: TitleScreenProps) {
 				</label>
 				<button
 					type="button"
-					onClick={onJoin}
+					onClick={() =>
+						onJoin({
+							operatorName: operatorName.trim(),
+							gameCode: gameCode.trim(),
+						})
+					}
 					style={{
 						marginTop: "0.5rem",
 						padding: "0.8rem 1.5rem",

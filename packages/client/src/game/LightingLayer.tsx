@@ -1,4 +1,4 @@
-import { useMemo } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { CELL_SIZE, ROOM_HEIGHT, layoutOccupancy, mulberry32, type MapLayout } from "@vibejam/shared";
 import type { FogState } from "./GameScene";
 import { OutlinedMesh } from "./toonOutline/OutlinedMesh";
@@ -30,6 +30,8 @@ type Fixture = CorridorLight | WallLight;
 
 const WALL_LIGHT_INSET = 0.18;
 const CORRIDOR_ACTIVE_LIGHT_STRIDE = 2;
+const SPECTATOR_LIGHT_BATCH_SIZE = 24;
+const SPECTATOR_LIGHT_BATCH_MS = 16;
 
 function shouldEnableCorridorLights(fixture: CorridorLight): boolean {
 	// Corridors can have many cells; enabling a rectAreaLight+pointLight for every cell can cause
@@ -144,10 +146,20 @@ function buildFixtures(layout: MapLayout, areaInfo: AreaInfo): Fixture[] {
 	return fixtures;
 }
 
-function CorridorFixture({ mode, fixture, outlinesEnabled }: { mode: "off" | "memory" | "active"; fixture: CorridorLight; outlinesEnabled: boolean }) {
+function CorridorFixture({
+	mode,
+	fixture,
+	outlinesEnabled,
+	allowRealtimeLight,
+}: {
+	mode: "off" | "memory" | "active";
+	fixture: CorridorLight;
+	outlinesEnabled: boolean;
+	allowRealtimeLight: boolean;
+}) {
 	const active = mode === "active";
 	const memory = mode === "memory";
-	const lightsEnabled = active && shouldEnableCorridorLights(fixture);
+	const lightsEnabled = active && allowRealtimeLight && shouldEnableCorridorLights(fixture);
 	return (
 		<group position={[fixture.x, fixture.y, fixture.z]} rotation={[0, fixture.rotationY, 0]}>
 			<OutlinedMesh
@@ -169,7 +181,17 @@ function CorridorFixture({ mode, fixture, outlinesEnabled }: { mode: "off" | "me
 	);
 }
 
-function WallFixture({ mode, fixture, outlinesEnabled }: { mode: "off" | "memory" | "active"; fixture: WallLight; outlinesEnabled: boolean }) {
+function WallFixture({
+	mode,
+	fixture,
+	outlinesEnabled,
+	allowRealtimeLight,
+}: {
+	mode: "off" | "memory" | "active";
+	fixture: WallLight;
+	outlinesEnabled: boolean;
+	allowRealtimeLight: boolean;
+}) {
 	const active = mode === "active";
 	const memory = mode === "memory";
 	return (
@@ -196,7 +218,7 @@ function WallFixture({ mode, fixture, outlinesEnabled }: { mode: "off" | "memory
 					/>
 				}
 			/>
-			{active ? (
+			{active && allowRealtimeLight ? (
 				<pointLight
 					color="#ffd7a1"
 					intensity={2.6}
@@ -214,15 +236,37 @@ export function LightingLayer({
 	areaInfo,
 	currentArea,
 	fogByCell,
+	forceAllActive = false,
 	outlinesEnabled = true,
 }: {
 	layout: MapLayout;
 	areaInfo: AreaInfo;
 	currentArea: string;
 	fogByCell: Map<string, FogState>;
+	forceAllActive?: boolean;
 	outlinesEnabled?: boolean;
 }) {
 	const fixtures = useMemo(() => buildFixtures(layout, areaInfo), [areaInfo, layout]);
+	const [activeLightBudget, setActiveLightBudget] = useState(() =>
+		forceAllActive ? 0 : Number.MAX_SAFE_INTEGER,
+	);
+
+	useEffect(() => {
+		if (!forceAllActive) {
+			setActiveLightBudget(Number.MAX_SAFE_INTEGER);
+			return;
+		}
+		setActiveLightBudget(0);
+		const timer = window.setInterval(() => {
+			setActiveLightBudget((current) => {
+				if (current >= fixtures.length) {
+					return current;
+				}
+				return Math.min(fixtures.length, current + SPECTATOR_LIGHT_BATCH_SIZE);
+			});
+		}, SPECTATOR_LIGHT_BATCH_MS);
+		return () => window.clearInterval(timer);
+	}, [fixtures.length, forceAllActive]);
 
 	return (
 		<group>
@@ -235,15 +279,27 @@ export function LightingLayer({
 				if (fog === "hidden") {
 					return null;
 				}
-				const active = fixture.area === currentArea;
+				const active = forceAllActive || fixture.area === currentArea;
 				const mode: "off" | "memory" | "active" = active ? "active" : fog === "explored" ? "memory" : "off";
+				const allowRealtimeLight = !forceAllActive || index < activeLightBudget;
 				return fixture.kind === "corridor" ? (
-					<CorridorFixture key={`${fixture.area}-${index}`} fixture={fixture} mode={mode} outlinesEnabled={outlinesEnabled} />
+					<CorridorFixture
+						key={`${fixture.area}-${index}`}
+						fixture={fixture}
+						mode={mode}
+						outlinesEnabled={outlinesEnabled}
+						allowRealtimeLight={allowRealtimeLight}
+					/>
 				) : (
-					<WallFixture key={`${fixture.area}-${index}`} fixture={fixture} mode={mode} outlinesEnabled={outlinesEnabled} />
+					<WallFixture
+						key={`${fixture.area}-${index}`}
+						fixture={fixture}
+						mode={mode}
+						outlinesEnabled={outlinesEnabled}
+						allowRealtimeLight={allowRealtimeLight}
+					/>
 				);
 			})}
 		</group>
 	);
 }
-

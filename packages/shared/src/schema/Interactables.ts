@@ -96,3 +96,25 @@ export class FileCabinetState extends Schema {
 	/** Bitmask: bit i set => drawer i has been searched. */
 	@type("number") searchedMask: number = 0;
 }
+
+export class TrapState extends Schema {
+	@type("string") id: string = "";
+	@type("string") ownerSessionId: string = "";
+	@type("string") targetKind: string = "";
+	@type("string") targetId: string = "";
+	@type("string") status: string = "active";
+	@type("number") trapPointSlotIndex: number = -1;
+	@type("number") placedAtMs: number = 0;
+	@type("number") ownerGraceUntilMs: number = 0;
+	@type("number") outwardX: number = 0;
+	@type("number") outwardZ: number = 1;
+	@type("number") doorSide: number = 1;
+}
+
+export class TrapPointState extends Schema {
+	@type("string") id: string = "";
+	@type("string") ownerSessionId: string = "";
+	@type("number") slotIndex: number = 0;
+	@type("string") status: string = "unused";
+	@type("string") trapId: string = "";
+}

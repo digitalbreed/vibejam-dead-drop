@@ -31,6 +31,7 @@ export function prepareGameRoom(room: Room<any, GameState>): void {
 	});
 	room.onMessage("interactable_event", () => {});
 	room.onMessage("interaction_feedback", () => {});
+	room.onMessage("ticker_event", () => {});
 }
 
 export function getLatestRoleAssignment(

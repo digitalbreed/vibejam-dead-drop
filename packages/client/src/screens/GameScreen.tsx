@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react";
 import type { GameTeam } from "@vibejam/shared";
 import { getLatestRoleAssignment, useRoom, useRoomState } from "../colyseus/roomContext";
+import { schemaMapValues } from "../colyseus/schemaMap";
 import { GameScene } from "../game/GameScene";
 import { Ticker } from "../game/ticker";
 
@@ -24,15 +25,47 @@ const BRIEFING_BY_TEAM: Record<GameTeam, BriefingCopy> = {
 	},
 };
 
-export function GameScreen() {
+type GameScreenProps = {
+	devBotsVisible?: boolean;
+	onToggleDevBotsVisibility?: () => void;
+};
+
+export function GameScreen({ devBotsVisible = true, onToggleDevBotsVisibility }: GameScreenProps) {
 	const { room } = useRoom();
 	const phase = useRoomState((s) => s.phase);
+	const players = useRoomState((s) => s.players);
+	const trapPoints = useRoomState((s) => s.trapPoints);
 	const [areaLabel, setAreaLabel] = useState("Start Room");
 	const [revealAll, setRevealAll] = useState(false);
 	const [debugCameraEnabled, setDebugCameraEnabled] = useState(false);
 	const [team, setTeam] = useState<GameTeam | null>(null);
 	const [briefingStage, setBriefingStage] = useState<BriefingStage>("hidden");
 	const mapSeed = useRoomState((s) => s.mapSeed);
+	const getPlayerBySessionId = (source: unknown, sessionId: string): any => {
+		if (!source) {
+			return undefined;
+		}
+		if (typeof source === "object" && source !== null && "get" in source && typeof (source as { get: (key: string) => unknown }).get === "function") {
+			return (source as { get: (key: string) => unknown }).get(sessionId);
+		}
+		return (source as Record<string, any>)[sessionId];
+	};
+	const localPlayer = room?.sessionId ? getPlayerBySessionId(players, room.sessionId) : undefined;
+	const localIsDead = !!localPlayer && localPlayer.isAlive === false;
+	const effectiveRevealAll = revealAll || localIsDead;
+	const trapSlots = schemaMapValues<any>(trapPoints)
+		.filter((point) => point?.ownerSessionId === room?.sessionId)
+		.sort((a, b) => a.slotIndex - b.slotIndex);
+	const activeTrapSlot = localPlayer?.isInteracting && localPlayer?.interactionStyle === "danger"
+		? localPlayer?.interactionTrapSlotIndex
+		: -1;
+	const activeTrapProgress =
+		localPlayer?.isInteracting &&
+		localPlayer?.interactionStyle === "danger" &&
+		typeof localPlayer?.interactionDurationMs === "number" &&
+		localPlayer.interactionDurationMs > 0
+			? Math.max(0, Math.min(1, localPlayer.interactionElapsedMs / localPlayer.interactionDurationMs))
+			: 0;
 
 	useEffect(() => {
 		const cached = getLatestRoleAssignment(room);
@@ -113,7 +146,7 @@ export function GameScreen() {
 			<div
 				style={{
 					position: "fixed",
-					top: 12,
+					bottom: 12,
 					left: 12,
 					zIndex: 2,
 					padding: "0.35rem 0.6rem",
@@ -158,8 +191,82 @@ export function GameScreen() {
 				>
 					Debug Cam
 				</button>
+				{onToggleDevBotsVisibility ? (
+					<button
+						type="button"
+						onClick={onToggleDevBotsVisibility}
+						style={{
+							marginTop: 6,
+							marginLeft: 6,
+							padding: "0.18rem 0.45rem",
+							fontSize: "0.78rem",
+							borderRadius: 4,
+							border: "1px solid rgba(120, 150, 200, 0.45)",
+							background: devBotsVisible ? "rgba(90, 130, 190, 0.3)" : "rgba(20, 28, 40, 0.75)",
+							color: "#dfe7f2",
+							cursor: "pointer",
+						}}
+					>
+						{devBotsVisible ? "Hide Bots" : "Show Bots"}
+					</button>
+				) : null}
 			</div>
-			<GameScene onAreaChange={setAreaLabel} revealAll={revealAll} debugCameraEnabled={debugCameraEnabled} />
+			<div
+				style={{
+					position: "fixed",
+					top: 12,
+					left: 12,
+					zIndex: 3,
+					display: "flex",
+					gap: 8,
+				}}
+			>
+				{trapSlots.map((slot) => {
+					const isActive = slot.status === "active";
+					const isUsed = slot.status === "used";
+					const isCharging = activeTrapSlot === slot.slotIndex;
+					const progress = isCharging ? activeTrapProgress : 0;
+					return (
+						<div
+							key={slot.id}
+							style={{
+								width: 84,
+								height: 54,
+								position: "relative",
+								borderRadius: 8,
+								border: `1px solid ${
+									isUsed ? "rgba(255, 84, 84, 0.9)" : isActive ? "rgba(76, 246, 150, 0.9)" : "rgba(156, 174, 196, 0.55)"
+								}`,
+								background: isUsed
+									? "rgba(112, 24, 24, 0.8)"
+									: isActive
+										? "rgba(18, 88, 50, 0.82)"
+										: "rgba(18, 24, 32, 0.82)",
+								animation: isActive ? "trap-hud-blink 1s steps(2, end) infinite" : "none",
+								display: "flex",
+								alignItems: "center",
+								justifyContent: "center",
+								overflow: "hidden",
+							}}
+						>
+							<div style={{ fontSize: "0.78rem", letterSpacing: "0.06em", color: "#e7eef8" }}>TNT {slot.slotIndex + 1}</div>
+							{isCharging ? (
+								<div
+									style={{
+										position: "absolute",
+										left: 0,
+										bottom: 0,
+										height: 4,
+										width: `${Math.round(progress * 100)}%`,
+										background: "#ff5353",
+									}}
+								/>
+							) : null}
+						</div>
+					);
+				})}
+			</div>
+			<GameScene onAreaChange={setAreaLabel} revealAll={effectiveRevealAll} debugCameraEnabled={debugCameraEnabled} />
 			{briefingStage !== "hidden" && briefingCopy ? (
 				<div
 					style={{

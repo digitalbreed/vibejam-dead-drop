@@ -123,6 +123,7 @@ function FileCabinetMesh({ cabinet, inSameRoom }: { cabinet: FileCabinetPlacemen
 export function FileCabinetLayer({
 	fogByCell,
 	revealAll,
+	forceAllOutlined = false,
 	mapSeed,
 	mapMaxDistance,
 	areaInfo,
@@ -131,6 +132,7 @@ export function FileCabinetLayer({
 }: {
 	fogByCell: Map<string, FogState>;
 	revealAll: boolean;
+	forceAllOutlined?: boolean;
 	mapSeed: number;
 	mapMaxDistance: number;
 	areaInfo: AreaInfo;
@@ -149,13 +151,14 @@ export function FileCabinetLayer({
 				}
 				const cellKey = `${Math.round(cabinet.x / CELL_SIZE)},${Math.round(cabinet.z / CELL_SIZE)}`;
 				const cabinetArea = areaInfo.labelByCell.get(cellKey);
-				const inSameRoom = outlinesEnabled && (!cabinetArea || cabinetArea === currentArea);
+				const inSameRoom =
+					outlinesEnabled &&
+					(forceAllOutlined || !cabinetArea || cabinetArea === currentArea);
 				const renderKey = cabinet.id && cabinet.id.length > 0 ? cabinet.id : `file-cabinet-${index}`;
 				return <FileCabinetMesh key={renderKey} cabinet={cabinet} inSameRoom={inSameRoom} />;
 			})}
 		</group>
 	);
 }
-
 
 

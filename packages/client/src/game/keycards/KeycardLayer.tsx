@@ -81,6 +81,7 @@ function GroundKeycard({ card, visible, outlined }: { card: KeycardState; visibl
 export function KeycardLayer({
 	fogByCell,
 	revealAll,
+	forceAllOutlined = false,
 	areaInfo,
 	currentArea,
 	audioEnabled = true,
@@ -88,6 +89,7 @@ export function KeycardLayer({
 }: {
 	fogByCell: Map<string, FogState>;
 	revealAll: boolean;
+	forceAllOutlined?: boolean;
 	areaInfo: { labelByCell: Map<string, string> };
 	currentArea: string;
 	audioEnabled?: boolean;
@@ -110,7 +112,9 @@ export function KeycardLayer({
 				}
 				const visible = revealAll || fogAtPosition(fogByCell, card.worldX, card.worldZ) !== "hidden";
 				const cellKey = `${Math.round(card.worldX / CELL_SIZE)},${Math.round(card.worldZ / CELL_SIZE)}`;
-				const outlined = outlinesEnabled && !revealAll && areaInfo.labelByCell.get(cellKey) === currentArea;
+				const outlined =
+					outlinesEnabled &&
+					(forceAllOutlined || (!revealAll && areaInfo.labelByCell.get(cellKey) === currentArea));
 				return <GroundKeycard key={renderKey} card={card} visible={visible} outlined={outlined} />;
 			})}
 		</group>

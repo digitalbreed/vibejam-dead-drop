@@ -33,6 +33,7 @@ import { VaultLayer } from "./vaults/VaultLayer";
 import { FileCabinetLayer } from "./fileCabinets/FileCabinetLayer";
 import { CelRenderLayer } from "./celRender";
 import { OutlinedMesh } from "./toonOutline/OutlinedMesh";
+import { TrapLayer } from "./traps/TrapLayer";
 
 const MOVE_SPEED = 12;
 const CAMERA_OFFSET = { x: 0, y: 8.5, z: 14 };
@@ -88,6 +89,16 @@ function directionLabel(ix: number, iz: number): string {
 
 function clamp(value: number, min: number, max: number): number {
 	return Math.min(max, Math.max(min, value));
+}
+
+function getPlayerBySessionId(players: unknown, sessionId: string): any {
+	if (!players) {
+		return undefined;
+	}
+	if (typeof players === "object" && players !== null && "get" in players && typeof (players as { get: (key: string) => unknown }).get === "function") {
+		return (players as { get: (key: string) => unknown }).get(sessionId);
+	}
+	return (players as Record<string, any>)[sessionId];
 }
 
 function buildAreaInfo(layout: ReturnType<typeof generateMapLayout>): AreaInfo {
@@ -228,6 +239,8 @@ function PlayerVisual({
 	carriedSuitcase,
 	isInteracting,
 	interactionProgress,
+	interactionStyle,
+	isAlive = true,
 	outlined = true,
 }: {
 	color: number;
@@ -239,6 +252,8 @@ function PlayerVisual({
 	carriedSuitcase?: boolean;
 	isInteracting?: boolean;
 	interactionProgress?: number;
+	interactionStyle?: string;
+	isAlive?: boolean;
 	outlined?: boolean;
 }) {
 	const groupRef = useRef<Group>(null);
@@ -298,47 +313,64 @@ function PlayerVisual({
 		lastPositionRef.current.copy(group.position);
 
 		if (visual) {
-			const turnAlpha = 1 - Math.exp(-dt * 12);
-			visual.rotation.y += (facingAngleRef.current - visual.rotation.y) * turnAlpha;
-			const speed = movementAmount / Math.max(dt, 0.0001);
-			if (speed > 0.05) {
-				wobblePhaseRef.current += dt * Math.min(18, 4 + speed * 0.9);
-			}
-			const wobbleStrength = Math.min(1, speed / MOVE_SPEED);
-			const wobbleRoll = Math.sin(wobblePhaseRef.current) * 0.22 * wobbleStrength;
-			visual.rotation.x = 0;
-			visual.rotation.z += (wobbleRoll - visual.rotation.z) * (1 - Math.exp(-dt * 14));
-			if (isInteracting) {
-				const t = performance.now() / 1000;
-				const jiggleX = Math.sin(t * 21 + wobblePhaseRef.current * 0.7) * 0.045;
-				const jiggleY = Math.cos(t * 17 + wobblePhaseRef.current * 0.5) * 0.05;
-				const jiggleZ = Math.sin(t * 19 + wobblePhaseRef.current * 0.9) * 0.045;
-				visual.position.set(jiggleX, jiggleY, jiggleZ);
-				const squash = 1 + Math.sin(t * 12) * 0.12;
-				visual.scale.set(1.05, 1 / squash, 1.05);
-			} else {
-				visual.position.set(0, 0, 0);
+			if (!isAlive) {
+				visual.position.set(0, 0.1, 0);
 				visual.scale.set(1, 1, 1);
+				visual.rotation.y += (facingAngleRef.current - visual.rotation.y) * (1 - Math.exp(-dt * 12));
+				visual.rotation.x += (-Math.PI / 2 - visual.rotation.x) * (1 - Math.exp(-dt * 16));
+				visual.rotation.z += (0 - visual.rotation.z) * (1 - Math.exp(-dt * 16));
+			} else {
+				const turnAlpha = 1 - Math.exp(-dt * 12);
+				visual.rotation.y += (facingAngleRef.current - visual.rotation.y) * turnAlpha;
+				const speed = movementAmount / Math.max(dt, 0.0001);
+				if (speed > 0.05) {
+					wobblePhaseRef.current += dt * Math.min(18, 4 + speed * 0.9);
+				}
+				const wobbleStrength = Math.min(1, speed / MOVE_SPEED);
+				const wobbleRoll = Math.sin(wobblePhaseRef.current) * 0.22 * wobbleStrength;
+				visual.rotation.x = 0;
+				visual.rotation.z += (wobbleRoll - visual.rotation.z) * (1 - Math.exp(-dt * 14));
+				if (isInteracting) {
+					const t = performance.now() / 1000;
+					const jiggleX = Math.sin(t * 21 + wobblePhaseRef.current * 0.7) * 0.045;
+					const jiggleY = Math.cos(t * 17 + wobblePhaseRef.current * 0.5) * 0.05;
+					const jiggleZ = Math.sin(t * 19 + wobblePhaseRef.current * 0.9) * 0.045;
+					visual.position.set(jiggleX, jiggleY, jiggleZ);
+					const squash = 1 + Math.sin(t * 12) * 0.12;
+					visual.scale.set(1.05, 1 / squash, 1.05);
+				} else {
+					visual.position.set(0, 0, 0);
+					visual.scale.set(1, 1, 1);
+				}
 			}
 		}
 
-		if (blinkDurationRef.current > 0) {
-			blinkDurationRef.current = Math.max(0, blinkDurationRef.current - dt);
+		if (isAlive) {
+			if (blinkDurationRef.current > 0) {
+				blinkDurationRef.current = Math.max(0, blinkDurationRef.current - dt);
+			} else {
+				blinkTimerRef.current -= dt;
+				if (blinkTimerRef.current <= 0) {
+					blinkDurationRef.current = 0.12;
+					blinkTimerRef.current = Math.random() * 2.8 + 1.4;
+				}
+			}
+
+			const blinkPhase = blinkDurationRef.current > 0 ? 1 - Math.abs(blinkDurationRef.current - 0.06) / 0.06 : 0;
+			const eyelidScale = 1 - blinkPhase * 0.92;
+			if (leftEyeRef.current) {
+				leftEyeRef.current.scale.y = eyelidScale;
+			}
+			if (rightEyeRef.current) {
+				rightEyeRef.current.scale.y = eyelidScale;
+			}
 		} else {
-			blinkTimerRef.current -= dt;
-			if (blinkTimerRef.current <= 0) {
-				blinkDurationRef.current = 0.12;
-				blinkTimerRef.current = Math.random() * 2.8 + 1.4;
+			if (leftEyeRef.current) {
+				leftEyeRef.current.scale.y = 1;
 			}
-		}
-
-		const blinkPhase = blinkDurationRef.current > 0 ? 1 - Math.abs(blinkDurationRef.current - 0.06) / 0.06 : 0;
-		const eyelidScale = 1 - blinkPhase * 0.92;
-		if (leftEyeRef.current) {
-			leftEyeRef.current.scale.y = eyelidScale;
-		}
-		if (rightEyeRef.current) {
-			rightEyeRef.current.scale.y = eyelidScale;
+			if (rightEyeRef.current) {
+				rightEyeRef.current.scale.y = 1;
+			}
 		}
 	});
 
@@ -359,20 +391,46 @@ function PlayerVisual({
 							<sphereGeometry args={[0.12, 18, 18]} />
 							<meshToonMaterial color="#fffaf0" />
 						</mesh>
-						<mesh position={[0.01, -0.01, 0.075]}>
-							<sphereGeometry args={[0.048, 14, 14]} />
-							<meshToonMaterial color="#111111" />
-						</mesh>
+						{isAlive ? (
+							<mesh position={[0.01, -0.01, 0.075]}>
+								<sphereGeometry args={[0.048, 14, 14]} />
+								<meshToonMaterial color="#111111" />
+							</mesh>
+						) : (
+							<group position={[0.01, -0.01, 0.12]}>
+								<mesh rotation={[0, 0, Math.PI / 4]}>
+									<boxGeometry args={[0.14, 0.022, 0.01]} />
+									<meshToonMaterial color="#111111" />
+								</mesh>
+								<mesh rotation={[0, 0, -Math.PI / 4]}>
+									<boxGeometry args={[0.14, 0.022, 0.01]} />
+									<meshToonMaterial color="#111111" />
+								</mesh>
+							</group>
+						)}
 					</group>
 					<group ref={rightEyeRef} position={[0.13, 0, -0.05]}>
 						<mesh castShadow={isLocal}>
 							<sphereGeometry args={[0.12, 18, 18]} />
 							<meshToonMaterial color="#fffaf0" />
 						</mesh>
-						<mesh position={[-0.01, -0.01, 0.075]}>
-							<sphereGeometry args={[0.048, 14, 14]} />
-							<meshToonMaterial color="#111111" />
-						</mesh>
+						{isAlive ? (
+							<mesh position={[-0.01, -0.01, 0.075]}>
+								<sphereGeometry args={[0.048, 14, 14]} />
+								<meshToonMaterial color="#111111" />
+							</mesh>
+						) : (
+							<group position={[-0.01, -0.01, 0.12]}>
+								<mesh rotation={[0, 0, Math.PI / 4]}>
+									<boxGeometry args={[0.14, 0.022, 0.01]} />
+									<meshToonMaterial color="#111111" />
+								</mesh>
+								<mesh rotation={[0, 0, -Math.PI / 4]}>
+									<boxGeometry args={[0.14, 0.022, 0.01]} />
+									<meshToonMaterial color="#111111" />
+								</mesh>
+							</group>
+						)}
 					</group>
 				</group>
 				{carriedKeycardColor ? (
@@ -440,8 +498,8 @@ function PlayerVisual({
 							]}
 						/>
 						<meshToonMaterial
-							color="#7cd6ff"
-							emissive="#2db9ff"
+							color={interactionStyle === "danger" ? "#ff8b8b" : "#7cd6ff"}
+							emissive={interactionStyle === "danger" ? "#ff3d3d" : "#2db9ff"}
 							emissiveIntensity={0.9}
 
 
@@ -574,14 +632,22 @@ function MovementInput({
 	inputRef,
 	enabled,
 	inputSource,
+	deadMode,
 }: {
 	inputRef: React.MutableRefObject<Vector2>;
 	enabled: boolean;
 	inputSource?: KeyboardInputSource;
+	deadMode: boolean;
 }) {
 	const { room } = useRoom();
 	const keys = useRef({ KeyW: false, KeyA: false, KeyS: false, KeyD: false });
-	const holdRef = useRef<{
+	const interactHoldRef = useRef<{
+		pressed: boolean;
+		holdSent: boolean;
+		startMs: number;
+		timerId: number | null;
+	}>({ pressed: false, holdSent: false, startMs: 0, timerId: null });
+	const trapHoldRef = useRef<{
 		pressed: boolean;
 		holdSent: boolean;
 		startMs: number;
@@ -589,26 +655,43 @@ function MovementInput({
 	}>({ pressed: false, holdSent: false, startMs: 0, timerId: null });
 
 	const source = inputSource ?? windowKeyboardInputSource;
+	const deadStopSentRef = useRef(false);
 
 	useEffect(() => {
 		const onDown = (e: KeyboardLikeEvent) => {
 			if (!enabled) {
 				return;
 			}
-			if (e.code === "KeyE" && !e.repeat && room) {
-				holdRef.current.pressed = true;
-				holdRef.current.holdSent = false;
-				holdRef.current.startMs = performance.now();
-				if (holdRef.current.timerId !== null) {
-					window.clearTimeout(holdRef.current.timerId);
+			if (!deadMode && e.code === "KeyE" && !e.repeat && room) {
+				interactHoldRef.current.pressed = true;
+				interactHoldRef.current.holdSent = false;
+				interactHoldRef.current.startMs = performance.now();
+				if (interactHoldRef.current.timerId !== null) {
+					window.clearTimeout(interactHoldRef.current.timerId);
 				}
-				holdRef.current.timerId = window.setTimeout(() => {
-					if (!holdRef.current.pressed || holdRef.current.holdSent) {
+				interactHoldRef.current.timerId = window.setTimeout(() => {
+					if (!interactHoldRef.current.pressed || interactHoldRef.current.holdSent) {
 						return;
 					}
-					holdRef.current.holdSent = true;
+					interactHoldRef.current.holdSent = true;
 					const holdPayload: GameClientMessages["interact_hold"] = { active: true };
 					room.send("interact_hold", holdPayload);
+				}, HOLD_START_DELAY_MS);
+			}
+			if (!deadMode && e.code === "KeyQ" && !e.repeat && room) {
+				trapHoldRef.current.pressed = true;
+				trapHoldRef.current.holdSent = false;
+				trapHoldRef.current.startMs = performance.now();
+				if (trapHoldRef.current.timerId !== null) {
+					window.clearTimeout(trapHoldRef.current.timerId);
+				}
+				trapHoldRef.current.timerId = window.setTimeout(() => {
+					if (!trapHoldRef.current.pressed || trapHoldRef.current.holdSent) {
+						return;
+					}
+					trapHoldRef.current.holdSent = true;
+					const holdPayload: GameClientMessages["trap_hold"] = { active: true };
+					room.send("trap_hold", holdPayload);
 				}, HOLD_START_DELAY_MS);
 			}
 			if (e.code in keys.current) {
@@ -617,28 +700,40 @@ function MovementInput({
 		};
 		const onUp = (e: KeyboardLikeEvent) => {
 			if (e.code === "KeyE" && room) {
-				const heldMs = performance.now() - holdRef.current.startMs;
-				holdRef.current.pressed = false;
-				if (holdRef.current.timerId !== null) {
-					window.clearTimeout(holdRef.current.timerId);
-					holdRef.current.timerId = null;
+				const heldMs = performance.now() - interactHoldRef.current.startMs;
+				interactHoldRef.current.pressed = false;
+				if (interactHoldRef.current.timerId !== null) {
+					window.clearTimeout(interactHoldRef.current.timerId);
+					interactHoldRef.current.timerId = null;
 				}
-				if (holdRef.current.holdSent) {
+				if (interactHoldRef.current.holdSent) {
 					const holdPayload: GameClientMessages["interact_hold"] = { active: false };
 					room.send("interact_hold", holdPayload);
 				}
-				if (!holdRef.current.holdSent && heldMs <= SHORT_PRESS_MAX_MS) {
+				if (!deadMode && !interactHoldRef.current.holdSent && heldMs <= SHORT_PRESS_MAX_MS) {
 					const interactPayload: GameClientMessages["interact"] = {};
 					room.send("interact", interactPayload);
 				}
-				holdRef.current.holdSent = false;
+				interactHoldRef.current.holdSent = false;
+			}
+			if (e.code === "KeyQ" && room) {
+				trapHoldRef.current.pressed = false;
+				if (trapHoldRef.current.timerId !== null) {
+					window.clearTimeout(trapHoldRef.current.timerId);
+					trapHoldRef.current.timerId = null;
+				}
+				if (trapHoldRef.current.holdSent) {
+					const holdPayload: GameClientMessages["trap_hold"] = { active: false };
+					room.send("trap_hold", holdPayload);
+				}
+				trapHoldRef.current.holdSent = false;
 			}
 			if (e.code in keys.current) {
 				keys.current[e.code as keyof typeof keys.current] = false;
 			}
 		};
 		return source.subscribe(onDown, onUp);
-	}, [enabled, room, source]);
+	}, [deadMode, enabled, room, source]);
 
 	useFrame(() => {
 		if (!room) {
@@ -650,15 +745,25 @@ function MovementInput({
 			keys.current.KeyS = false;
 			keys.current.KeyD = false;
 			inputRef.current.set(0, 0);
-			if (holdRef.current.timerId !== null) {
-				window.clearTimeout(holdRef.current.timerId);
-				holdRef.current.timerId = null;
+			if (interactHoldRef.current.timerId !== null) {
+				window.clearTimeout(interactHoldRef.current.timerId);
+				interactHoldRef.current.timerId = null;
 			}
-			if (holdRef.current.holdSent) {
-				holdRef.current.pressed = false;
-				holdRef.current.holdSent = false;
+			if (interactHoldRef.current.holdSent) {
+				interactHoldRef.current.pressed = false;
+				interactHoldRef.current.holdSent = false;
 				const holdPayload: GameClientMessages["interact_hold"] = { active: false };
 				room.send("interact_hold", holdPayload);
+			}
+			if (trapHoldRef.current.timerId !== null) {
+				window.clearTimeout(trapHoldRef.current.timerId);
+				trapHoldRef.current.timerId = null;
+			}
+			if (trapHoldRef.current.holdSent) {
+				trapHoldRef.current.pressed = false;
+				trapHoldRef.current.holdSent = false;
+				const holdPayload: GameClientMessages["trap_hold"] = { active: false };
+				room.send("trap_hold", holdPayload);
 			}
 			const payload: GameClientMessages["input"] = { x: 0, z: 0 };
 			room.send("input", payload);
@@ -683,6 +788,15 @@ function MovementInput({
 		const nx = len > 1 ? x / len : x;
 		const nz = len > 1 ? z / len : z;
 		inputRef.current.set(nx, nz);
+		if (deadMode) {
+			if (!deadStopSentRef.current) {
+				const payload: GameClientMessages["input"] = { x: 0, z: 0 };
+				room.send("input", payload);
+				deadStopSentRef.current = true;
+			}
+			return;
+		}
+		deadStopSentRef.current = false;
 		const payload: GameClientMessages["input"] = { x: nx, z: nz };
 		room.send("input", payload);
 	});
@@ -711,10 +825,13 @@ function SceneContent({
 	const keycards = useRoomState((s) => s.keycards);
 	const suitcases = useRoomState((s) => s.suitcases);
 	const vaults = useRoomState((s) => s.vaults);
+	const traps = useRoomState((s) => s.traps);
 	const mapSeed = useRoomState((s) => s.mapSeed);
 	const mapMaxDistance = useRoomState((s) => s.mapMaxDistance);
 	const inputRef = useRef(new Vector2(0, 0));
 	const localVisualRef = useRef(new Vector3(0, 0.5, 0));
+	const spectatorTargetRef = useRef(new Vector3(0, 0.5, 0));
+	const deadStateRef = useRef(false);
 	const authoritativeRef = useRef(new Vector3());
 	const lastAreaRef = useRef<string>("");
 	const [currentArea, setCurrentArea] = useState("Start Room");
@@ -792,25 +909,68 @@ function SceneContent({
 	);
 	const areaInfo = useMemo(() => buildAreaInfo(layout), [layout]);
 	const fogByCell = useMemo(() => buildFogByCell(areaInfo, currentArea, visitedAreas, revealAll), [areaInfo, currentArea, revealAll, visitedAreas]);
+	const mapBounds = useMemo(() => {
+		let minX = Infinity;
+		let maxX = -Infinity;
+		let minZ = Infinity;
+		let maxZ = -Infinity;
+		for (const cell of layout.cells) {
+			const x = cell.ix * CELL_SIZE;
+			const z = cell.iz * CELL_SIZE;
+			minX = Math.min(minX, x);
+			maxX = Math.max(maxX, x);
+			minZ = Math.min(minZ, z);
+			maxZ = Math.max(maxZ, z);
+		}
+		const pad = CELL_SIZE * 1.5;
+		return { minX: minX - pad, maxX: maxX + pad, minZ: minZ - pad, maxZ: maxZ + pad };
+	}, [layout.cells]);
+	const localSessionId = room?.sessionId;
+	const localPlayerSnapshot = localSessionId ? getPlayerBySessionId(players, localSessionId) : undefined;
+	const localIsAlive = localPlayerSnapshot?.isAlive !== false;
+	const cameraTargetRef = localIsAlive ? localVisualRef : spectatorTargetRef;
 
 	useEffect(() => {
-		if (!room?.sessionId || !players?.[room.sessionId]) {
+		const sessionId = room?.sessionId;
+		const local = sessionId ? getPlayerBySessionId(players, sessionId) : undefined;
+		if (!sessionId || !local) {
 			localVisualRef.current.set(0, 0.5, 0);
+			spectatorTargetRef.current.set(0, 0.5, 0);
 			return;
 		}
-		const local = players[room.sessionId];
 		if (localVisualRef.current.lengthSq() === 0) {
 			localVisualRef.current.set(local.x, 0.5, local.z);
+		}
+		if (local.isAlive !== false) {
+			spectatorTargetRef.current.set(local.x, 0.5, local.z);
 		}
 	}, [players, room]);
 
 	useFrame((_, dt) => {
 		const sessionId = room?.sessionId;
-		if (!sessionId || !players?.[sessionId]) {
+		const local = sessionId ? getPlayerBySessionId(players, sessionId) : undefined;
+		if (!sessionId || !local) {
 			return;
 		}
-
-		const local = players[sessionId];
+		if (!local.isAlive) {
+			if (!deadStateRef.current) {
+				deadStateRef.current = true;
+				spectatorTargetRef.current.set(localVisualRef.current.x, 0.5, localVisualRef.current.z);
+			}
+			const panSpeed = MOVE_SPEED * 1.2;
+			spectatorTargetRef.current.x = clamp(
+				spectatorTargetRef.current.x + inputRef.current.x * panSpeed * dt,
+				mapBounds.minX,
+				mapBounds.maxX,
+			);
+			spectatorTargetRef.current.z = clamp(
+				spectatorTargetRef.current.z + inputRef.current.y * panSpeed * dt,
+				mapBounds.minZ,
+				mapBounds.maxZ,
+			);
+			return;
+		}
+		deadStateRef.current = false;
 		const authoritative = authoritativeRef.current;
 		authoritative.set(local.x, 0.5, local.z);
 		const predictedStepX = inputRef.current.x * MOVE_SPEED * dt;
@@ -857,6 +1017,10 @@ function SceneContent({
 		if (!players) {
 			return [];
 		}
+		const playerEntries: Array<[string, any]> =
+			typeof players === "object" && players !== null && "entries" in players && typeof (players as { entries: () => Iterable<[string, any]> }).entries === "function"
+				? Array.from((players as { entries: () => Iterable<[string, any]> }).entries())
+				: Object.entries(players as Record<string, any>);
 		const carriedColorBySessionId = new Map<string, KeycardColor>();
 		for (const card of schemaMapValues<KeycardState>(keycards)) {
 			if (card.state !== "carried" || !card.carrierSessionId) {
@@ -871,7 +1035,7 @@ function SceneContent({
 			}
 			carriedSuitcaseBySessionId.add(suitcase.carrierSessionId);
 		}
-		return Object.entries(players as Record<string, any>).map(([id, p]) => ({
+		return playerEntries.map(([id, p]) => ({
 			id,
 			x: p.x,
 			z: p.z,
@@ -885,21 +1049,29 @@ function SceneContent({
 				typeof p.interactionDurationMs === "number" && p.interactionDurationMs > 0
 					? Math.max(0, Math.min(1, p.interactionElapsedMs / p.interactionDurationMs))
 					: 0,
+			interactionStyle: typeof p.interactionStyle === "string" ? p.interactionStyle : "normal",
+			isAlive: p.isAlive !== false,
 		}));
 	}, [areaInfo.labelByCell, keycards, players, room?.sessionId, suitcases]);
 
 	return (
 		<>
 			<CelRenderLayer config={{ bandCount: 3, bandGamma: 1.45 }} />
-			<ThirdPersonCamera targetRef={localVisualRef} enabled={!debugCameraEnabled} />
-			<DebugOrbitCamera targetRef={localVisualRef} enabled={debugCameraEnabled} />
-			<MovementInput inputRef={inputRef} enabled={!debugCameraEnabled} inputSource={inputSource} />
+			<ThirdPersonCamera targetRef={cameraTargetRef} enabled={!debugCameraEnabled} />
+			<DebugOrbitCamera targetRef={cameraTargetRef} enabled={debugCameraEnabled} />
+			<MovementInput
+				inputRef={inputRef}
+				enabled={!debugCameraEnabled}
+				inputSource={inputSource}
+				deadMode={!localIsAlive}
+			/>
 			<ambientLight intensity={0.42} />
 			<LightingLayer
 				layout={layout}
 				areaInfo={areaInfo}
 				currentArea={currentArea}
 				fogByCell={fogByCell}
+				forceAllActive={!localIsAlive}
 				outlinesEnabled={outlinesEnabled}
 			/>
 			<MapLevel
@@ -908,12 +1080,14 @@ function SceneContent({
 				areaInfo={areaInfo}
 				currentArea={currentArea}
 				playerPositionRef={localVisualRef}
+				forceAllOutlined={!localIsAlive}
 				outlinesEnabled={outlinesEnabled}
 			/>
 			<DoorLayer fogByCell={fogByCell} revealAll={revealAll} audioEnabled={audioEnabled} />
 			<KeycardLayer
 				fogByCell={fogByCell}
 				revealAll={revealAll}
+				forceAllOutlined={!localIsAlive}
 				areaInfo={areaInfo}
 				currentArea={currentArea}
 				audioEnabled={audioEnabled}
@@ -922,6 +1096,7 @@ function SceneContent({
 			<SuitcaseLayer
 				fogByCell={fogByCell}
 				revealAll={revealAll}
+				forceAllOutlined={!localIsAlive}
 				areaInfo={areaInfo}
 				currentArea={currentArea}
 				audioEnabled={audioEnabled}
@@ -930,6 +1105,7 @@ function SceneContent({
 			<FileCabinetLayer
 				fogByCell={fogByCell}
 				revealAll={revealAll}
+				forceAllOutlined={!localIsAlive}
 				mapSeed={mapSeed ?? 0}
 				mapMaxDistance={mapMaxDistance ?? 12}
 				areaInfo={areaInfo}
@@ -939,9 +1115,21 @@ function SceneContent({
 			<VaultLayer
 				fogByCell={fogByCell}
 				revealAll={revealAll}
+				forceAllOutlined={!localIsAlive}
 				areaInfo={areaInfo}
 				currentArea={currentArea}
 				audioEnabled={audioEnabled}
+				outlinesEnabled={outlinesEnabled}
+			/>
+			<TrapLayer
+				trapsState={traps}
+				fogByCell={fogByCell}
+				revealAll={revealAll}
+				forceAllOutlined={!localIsAlive}
+				mapSeed={mapSeed ?? 0}
+				mapMaxDistance={mapMaxDistance ?? 12}
+				areaInfo={areaInfo}
+				currentArea={currentArea}
 				outlinesEnabled={outlinesEnabled}
 			/>
 			{list.map((p) =>
@@ -957,6 +1145,8 @@ function SceneContent({
 						carriedSuitcase={p.carriedSuitcase}
 						isInteracting={p.isInteracting}
 						interactionProgress={p.interactionProgress}
+						interactionStyle={p.interactionStyle}
+						isAlive={p.isAlive}
 					/>
 				) : revealAll || p.area === currentArea ? (
 					<PlayerVisual
@@ -969,6 +1159,8 @@ function SceneContent({
 						carriedSuitcase={p.carriedSuitcase}
 						isInteracting={p.isInteracting}
 						interactionProgress={p.interactionProgress}
+						interactionStyle={p.interactionStyle}
+						isAlive={p.isAlive}
 						outlined={outlinesEnabled}
 					/>
 				) : null,
@@ -1006,5 +1198,3 @@ export function GameScene({
 		</Canvas>
 	);
 }
-
-

@@ -1,4 +1,4 @@
-export type MovementKeyCode = "KeyW" | "KeyA" | "KeyS" | "KeyD" | "KeyE";
+export type MovementKeyCode = "KeyW" | "KeyA" | "KeyS" | "KeyD" | "KeyE" | "KeyQ";
 
 export type KeyboardLikeEvent = {
 	code: MovementKeyCode;
@@ -9,7 +9,7 @@ export type KeyboardInputSource = {
 	subscribe: (onDown: (event: KeyboardLikeEvent) => void, onUp: (event: KeyboardLikeEvent) => void) => () => void;
 };
 
-const MOVEMENT_CODES = new Set<MovementKeyCode>(["KeyW", "KeyA", "KeyS", "KeyD", "KeyE"]);
+const MOVEMENT_CODES = new Set<MovementKeyCode>(["KeyW", "KeyA", "KeyS", "KeyD", "KeyE", "KeyQ"]);
 
 export function createWindowKeyboardInputSource(): KeyboardInputSource {
 	return {

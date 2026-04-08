@@ -11,13 +11,18 @@ import { TitleScreen } from "./screens/TitleScreen";
 import { LobbyScreen } from "./screens/LobbyScreen";
 import { GameScreen } from "./screens/GameScreen";
 
+type JoinParams = {
+	operatorName: string;
+	gameCode: string;
+};
+
 const devBotsEnabled =
 	import.meta.env.DEV &&
 	(import.meta.env.VITE_DEV_BOTS_ENABLED ?? "1").trim() !== "0";
 
-function DevBotsLoader() {
+function DevBotsLoader({ visible }: { visible: boolean }) {
 	const { room } = useRoom();
-	const [Host, setHost] = useState<ComponentType | null>(null);
+	const [Host, setHost] = useState<ComponentType<{ visible?: boolean }> | null>(null);
 
 	useEffect(() => {
 		if (!devBotsEnabled) {
@@ -39,12 +44,13 @@ function DevBotsLoader() {
 		return null;
 	}
 
-	return <Host />;
+	return <Host visible={visible} />;
 }
 
 function ConnectedFlow() {
 	const { room, error, isConnecting } = useRoom();
 	const phase = useRoomState((s) => s.phase);
+	const [devBotsVisible, setDevBotsVisible] = useState(true);
 
 	if (error) {
 		return (
@@ -64,30 +70,58 @@ function ConnectedFlow() {
 
 	return (
 		<>
-			{phase === "lobby" ? <LobbyScreen /> : <GameScreen />}
-			<DevBotsLoader />
+			{phase === "lobby" ? (
+				<LobbyScreen />
+			) : (
+				<GameScreen
+					devBotsVisible={devBotsVisible}
+					onToggleDevBotsVisibility={() => setDevBotsVisible((current) => !current)}
+				/>
+			)}
+			<DevBotsLoader visible={devBotsVisible} />
 		</>
 	);
 }
 
 export default function App() {
 	const [joinRequested, setJoinRequested] = useState(false);
+	const [joinParams, setJoinParams] = useState<JoinParams>({
+		operatorName: "",
+		gameCode: "",
+	});
 	const mapMaxDistance = useMemo(
 		() => Number(import.meta.env.VITE_MAP_MAX_DISTANCE ?? 12),
 		[],
 	);
 	const connectMainRoom = useCallback(
 		() =>
-			colyseusClient.joinOrCreate("game_room", { mapMaxDistance }, GameState).then((room) => {
+			colyseusClient
+				.joinOrCreate(
+					"game_room",
+					{
+						mapMaxDistance,
+						operatorName: joinParams.operatorName,
+						gameCode: joinParams.gameCode,
+					},
+					GameState,
+				)
+				.then((room) => {
 				prepareGameRoom(room);
 				return room;
 			}),
-		[mapMaxDistance],
+		[joinParams.gameCode, joinParams.operatorName, mapMaxDistance],
 	);
 
 	return (
 		<>
-			{!joinRequested && <TitleScreen onJoin={() => setJoinRequested(true)} />}
+			{!joinRequested && (
+				<TitleScreen
+					onJoin={(params) => {
+						setJoinParams(params);
+						setJoinRequested(true);
+					}}
+				/>
+			)}
 			{joinRequested && (
 				<RoomProvider
 					connect={connectMainRoom}
