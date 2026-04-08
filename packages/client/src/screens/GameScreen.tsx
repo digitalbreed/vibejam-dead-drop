@@ -10,16 +10,19 @@ type BriefingStage = "hidden" | "pre-enter" | "center" | "exit";
 type BriefingCopy = {
 	teamLabel: string;
 	mission: string;
+	color: string;
 };
 
 const BRIEFING_BY_TEAM: Record<GameTeam, BriefingCopy> = {
 	shredders: {
-		teamLabel: "TEAM SHREDDERS",
+		teamLabel: "SHREDDERS",
+		color: "#FF0000",
 		mission:
 			"Find the keycards, crack the vault, and drag the briefcase to the exit before Enforcers ask awkward questions.",
 	},
 	enforcers: {
-		teamLabel: "TEAM ENFORCERS",
+		teamLabel: "ENFORCERS",
+		color: "#0015BC",
 		mission:
 			"Protect the office's deeply suspicious paper trail. Stall, harass, and make every Shredder miss their fake lunch break.",
 	},
@@ -27,10 +30,17 @@ const BRIEFING_BY_TEAM: Record<GameTeam, BriefingCopy> = {
 
 type GameScreenProps = {
 	devBotsVisible?: boolean;
+	botsPaused?: boolean;
 	onToggleDevBotsVisibility?: () => void;
+	onToggleBotsPaused?: () => void;
 };
 
-export function GameScreen({ devBotsVisible = true, onToggleDevBotsVisibility }: GameScreenProps) {
+export function GameScreen({
+	devBotsVisible = true,
+	botsPaused = false,
+	onToggleDevBotsVisibility,
+	onToggleBotsPaused,
+}: GameScreenProps) {
 	const { room } = useRoom();
 	const phase = useRoomState((s) => s.phase);
 	const players = useRoomState((s) => s.players);
@@ -52,7 +62,6 @@ export function GameScreen({ devBotsVisible = true, onToggleDevBotsVisibility }:
 	};
 	const localPlayer = room?.sessionId ? getPlayerBySessionId(players, room.sessionId) : undefined;
 	const localIsDead = !!localPlayer && localPlayer.isAlive === false;
-	const effectiveRevealAll = revealAll || localIsDead;
 	const trapSlots = schemaMapValues<any>(trapPoints)
 		.filter((point) => point?.ownerSessionId === room?.sessionId)
 		.sort((a, b) => a.slotIndex - b.slotIndex);
@@ -210,6 +219,25 @@ export function GameScreen({ devBotsVisible = true, onToggleDevBotsVisibility }:
 						{devBotsVisible ? "Hide Bots" : "Show Bots"}
 					</button>
 				) : null}
+				{onToggleBotsPaused ? (
+					<button
+						type="button"
+						onClick={onToggleBotsPaused}
+						style={{
+							marginTop: 6,
+							marginLeft: 6,
+							padding: "0.18rem 0.45rem",
+							fontSize: "0.78rem",
+							borderRadius: 4,
+							border: "1px solid rgba(120, 150, 200, 0.45)",
+							background: botsPaused ? "rgba(190, 116, 90, 0.35)" : "rgba(20, 28, 40, 0.75)",
+							color: "#dfe7f2",
+							cursor: "pointer",
+						}}
+					>
+						{botsPaused ? "Resume Bots" : "Pause Bots"}
+					</button>
+				) : null}
 			</div>
 			<div
 				style={{
@@ -266,7 +294,12 @@ export function GameScreen({ devBotsVisible = true, onToggleDevBotsVisibility }:
 					);
 				})}
 			</div>
-			<GameScene onAreaChange={setAreaLabel} revealAll={effectiveRevealAll} debugCameraEnabled={debugCameraEnabled} />
+			<GameScene
+				onAreaChange={setAreaLabel}
+				revealAll={revealAll}
+				spectatorReveal={localIsDead}
+				debugCameraEnabled={debugCameraEnabled}
+			/>
 			{briefingStage !== "hidden" && briefingCopy ? (
 				<div
 					style={{
@@ -305,7 +338,7 @@ export function GameScreen({ devBotsVisible = true, onToggleDevBotsVisibility }:
 							}}
 						>
 							<div style={{ opacity: 0.8, fontSize: "0.5em", marginBottom: "0.45rem", letterSpacing: "0.22em" }}>
-								You Are
+								Your Team
 							</div>
 							<div>{briefingCopy.teamLabel}</div>
 						</div>

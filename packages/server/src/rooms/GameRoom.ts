@@ -593,6 +593,10 @@ export class GameRoom extends Room {
 				return;
 			}
 		}
+		if (this.isInteractionTargetBusy(candidate.kind, candidate.id, sessionId)) {
+			client.send("interaction_feedback", { kind: "error_beep" });
+			return;
+		}
 		player.isInteracting = true;
 		player.interactionKind = candidate.kind;
 		player.interactionTargetId = candidate.id;
@@ -673,6 +677,10 @@ export class GameRoom extends Room {
 		}
 		const candidate = this.findTrapPlacementCandidate(sessionId, player);
 		if (!candidate) {
+			client.send("interaction_feedback", { kind: "error_beep" });
+			return;
+		}
+		if (this.isInteractionTargetBusy("trap_place", candidate.targetId, sessionId)) {
 			client.send("interaction_feedback", { kind: "error_beep" });
 			return;
 		}
@@ -1039,6 +1047,29 @@ export class GameRoom extends Room {
 		return `trap_point_${ownerSessionId}_${slotIndex}`;
 	}
 
+	private isInteractionTargetBusy(
+		interactionKind: "vault" | "file_cabinet" | "trap_place",
+		targetId: string,
+		excludingSessionId: string,
+	): boolean {
+		for (const [sessionId, other] of this.state.players.entries()) {
+			if (sessionId === excludingSessionId) {
+				continue;
+			}
+			if (!other.isAlive || !other.isInteracting) {
+				continue;
+			}
+			if (other.interactionKind !== interactionKind) {
+				continue;
+			}
+			if (other.interactionTargetId !== targetId) {
+				continue;
+			}
+			return true;
+		}
+		return false;
+	}
+
 	private findFirstUnusedTrapPointSlot(ownerSessionId: string): number {
 		for (let slot = 0; slot < TRAP_POINT_COUNT; slot++) {
 			const trapPoint = this.state.trapPoints.get(this.trapPointId(ownerSessionId, slot));
@@ -1103,15 +1134,10 @@ export class GameRoom extends Room {
 			}
 		}
 
-		const deadClient = this.clients.find((client) => client.sessionId === sessionId);
 		const payload: Extract<GameServerMessages["ticker_event"], { event: "agent_died" }> = {
 			event: "agent_died",
 			agentCode: sessionId.slice(-4).toUpperCase(),
 		};
-		if (deadClient) {
-			this.broadcast("ticker_event", payload, { except: deadClient });
-			return;
-		}
 		this.broadcast("ticker_event", payload);
 	}
 

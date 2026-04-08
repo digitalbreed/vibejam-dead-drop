@@ -25,12 +25,13 @@ function GroundSuitcase({ suitcase, visible, outlined }: { suitcase: SuitcaseSta
 		groupRef.current.position.y = 0.18 + Math.sin(state.clock.elapsedTime * 1.8 + phaseSeed * 0.7) * 0.01;
 	});
 
-	if (!visible) {
-		return null;
-	}
-
 	return (
-		<group ref={groupRef} position={[suitcase.worldX, 0.18, suitcase.worldZ]} rotation={[Math.PI / 2, 0, 0]}>
+		<group
+			ref={groupRef}
+			position={[suitcase.worldX, 0.18, suitcase.worldZ]}
+			rotation={[Math.PI / 2, 0, 0]}
+			visible={visible}
+		>
 			<OutlinedMesh
 				castShadow
 				receiveShadow

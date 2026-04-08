@@ -10,6 +10,7 @@ export {
 	TrapPointState,
 } from "./schema/Interactables.js";
 export * from "./map/index.js";
+export * from "./bots/index.js";
 
 /** Match flow before/after the Colyseus room locks for a running round. */
 export type GamePhase = "lobby" | "playing";

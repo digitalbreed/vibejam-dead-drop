@@ -317,9 +317,7 @@ function DoorItem({
 	side2Wall: Texture;
 }) {
 	const fog = mergeFog(side1Fog, side2Fog);
-	if (fog === "hidden") {
-		return null;
-	}
+	const isVisible = fog !== "hidden";
 	const facing = placement.facing;
 	const hingeSide: "left" | "right" = doorState?.hingeSide === "right" ? "right" : placement.hingeSide;
 	const isOpen = doorState?.isOpen ?? false;
@@ -363,7 +361,11 @@ function DoorItem({
 		  };
 
 	return (
-		<group position={[placement.x, 0, placement.z]} rotation={[0, facing === "z" ? -Math.PI / 2 : 0, 0]}>
+		<group
+			position={[placement.x, 0, placement.z]}
+			rotation={[0, facing === "z" ? -Math.PI / 2 : 0, 0]}
+			visible={isVisible}
+		>
 			<PortalFrame
 				openingWidth={openingWidth}
 				openingHeight={openingHeight}
@@ -467,8 +469,7 @@ export function DoorLayer({
 
 	return (
 		<group>
-			{placements.map((placement) => (
-				(() => {
+			{placements.map((placement) => {
 					const fog1 = fogByCell.get(`${placement.ix1},${placement.iz1}`) ?? "hidden";
 					const fog2 = fogByCell.get(`${placement.ix2},${placement.iz2}`) ?? "hidden";
 					const side1Fog: FogState = revealAll ? "visible" : fog1;
@@ -490,8 +491,7 @@ export function DoorLayer({
 					side2Wall={textures.walls[placement.side2WallStyle]!}
 				/>
 					);
-				})()
-			))}
+			})}
 		</group>
 	);
 }

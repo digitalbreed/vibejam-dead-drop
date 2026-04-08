@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import { GameState, type GameTeam } from "@vibejam/shared";
 import {
 	colyseusClient,
@@ -10,68 +10,49 @@ import {
 } from "../colyseus/roomContext";
 import { schemaMapValues } from "../colyseus/schemaMap";
 import { GameScene } from "../game/GameScene";
-import {
-	createVirtualKeyboardInputSource,
-	type MovementKeyCode,
-	type KeyboardInputSource,
-} from "../game/input/keyboardInput";
+import { useDevBotController } from "./useDevBotController";
 
 const MAX_BOT_COUNT = 3;
 const DEFAULT_TARGET_PLAYERS = 4;
-const BOT_MOVE_CODES: MovementKeyCode[] = ["KeyW", "KeyA", "KeyS", "KeyD"];
+const DEFAULT_RENDER_FPS = 15;
+const DEFAULT_MAX_VISIBLE_PREVIEWS = 3;
 
-function readTargetPlayers(): number {
-	const value = Number(import.meta.env.VITE_DEV_BOTS_TARGET_PLAYERS ?? DEFAULT_TARGET_PLAYERS);
+type BotPreviewMode = "full" | "placeholder" | "none";
+
+function readPositiveInt(raw: unknown, fallback: number): number {
+	const value = Number(raw);
 	if (!Number.isFinite(value)) {
-		return DEFAULT_TARGET_PLAYERS;
+		return fallback;
 	}
 	return Math.max(1, Math.floor(value));
 }
 
-function useWanderBotInput(inputSource: KeyboardInputSource & { emitDown: (event: { code: MovementKeyCode; repeat?: boolean }) => void; emitUp: (event: { code: MovementKeyCode; repeat?: boolean }) => void }, active: boolean) {
-	const activeCodeRef = useRef<MovementKeyCode | null>(null);
-
-	useEffect(() => {
-		let timerId: number | null = null;
-
-		const release = () => {
-			if (!activeCodeRef.current) {
-				return;
-			}
-			inputSource.emitUp({ code: activeCodeRef.current });
-			activeCodeRef.current = null;
-		};
-
-		const scheduleNext = () => {
-			timerId = window.setTimeout(step, 450 + Math.random() * 900);
-		};
-
-		const step = () => {
-			release();
-			if (active && Math.random() > 0.18) {
-				const nextCode = BOT_MOVE_CODES[Math.floor(Math.random() * BOT_MOVE_CODES.length)]!;
-				activeCodeRef.current = nextCode;
-				inputSource.emitDown({ code: nextCode, repeat: false });
-			}
-			scheduleNext();
-		};
-
-		if (active) {
-			scheduleNext();
-		} else {
-			release();
-		}
-
-		return () => {
-			if (timerId !== null) {
-				window.clearTimeout(timerId);
-			}
-			release();
-		};
-	}, [active, inputSource]);
+function readTargetPlayers(): number {
+	return readPositiveInt(import.meta.env.VITE_DEV_BOTS_TARGET_PLAYERS ?? DEFAULT_TARGET_PLAYERS, DEFAULT_TARGET_PLAYERS);
 }
 
-function BotViewport({ slot }: { slot: number }) {
+function readRenderFps(): number {
+	return readPositiveInt(import.meta.env.VITE_DEV_BOTS_RENDER_FPS ?? DEFAULT_RENDER_FPS, DEFAULT_RENDER_FPS);
+}
+
+function readMaxVisiblePreviews(): number {
+	return readPositiveInt(
+		import.meta.env.VITE_DEV_BOTS_MAX_VISIBLE_PREVIEWS ?? DEFAULT_MAX_VISIBLE_PREVIEWS,
+		DEFAULT_MAX_VISIBLE_PREVIEWS,
+	);
+}
+
+function BotClientViewport({
+	slot,
+	mode,
+	renderFps,
+	botsPaused,
+}: {
+	slot: number;
+	mode: BotPreviewMode;
+	renderFps: number;
+	botsPaused: boolean;
+}) {
 	const { room, isConnecting, error } = useRoom();
 	const phase = useRoomState((state) => state.phase);
 	const localIsAlive = useRoomState((state) => {
@@ -79,19 +60,28 @@ function BotViewport({ slot }: { slot: number }) {
 		if (!sessionId) {
 			return true;
 		}
-		const players = state?.players;
-		if (!players) {
+		const sourcePlayers = state?.players;
+		if (!sourcePlayers) {
 			return true;
 		}
 		const player =
-			typeof players.get === "function"
-				? players.get(sessionId)
-				: (players as Record<string, any>)[sessionId];
+			typeof sourcePlayers.get === "function"
+				? sourcePlayers.get(sessionId)
+				: (sourcePlayers as Record<string, any>)[sessionId];
 		return player?.isAlive !== false;
 	});
 	const [team, setTeam] = useState<GameTeam | null>(null);
-	const inputSource = useMemo(() => createVirtualKeyboardInputSource(), []);
-	useWanderBotInput(inputSource, !!room && !isConnecting && !error && localIsAlive !== false);
+
+	useDevBotController({
+		slot,
+		room,
+		team,
+		phase,
+		isConnecting,
+		error,
+		isAlive: localIsAlive !== false,
+		isPaused: botsPaused,
+	});
 
 	useEffect(() => {
 		const cached = getLatestRoleAssignment(room);
@@ -116,15 +106,20 @@ function BotViewport({ slot }: { slot: number }) {
 		setTeam(null);
 	}, [phase]);
 
+	if (mode === "none") {
+		return null;
+	}
+
 	const roleLabel = team === "enforcers" ? "Enforcer" : team === "shredders" ? "Shredder" : null;
-	const statusText =
+	const activeText =
 		phase === "lobby"
 			? `Bot ${slot + 1} waiting`
 			: localIsAlive === false
 				? `Bot ${slot + 1} dead`
-			: roleLabel
-				? `Bot ${slot + 1} (${roleLabel}) active`
-				: `Bot ${slot + 1} active`;
+				: roleLabel
+					? `Bot ${slot + 1} (${roleLabel}) active`
+					: `Bot ${slot + 1} active`;
+	const statusText = mode === "placeholder" ? `${activeText} (preview paused)` : activeText;
 
 	return (
 		<div style={{ position: "relative", width: "100%", height: "100%" }}>
@@ -161,12 +156,51 @@ function BotViewport({ slot }: { slot: number }) {
 					{error.message}
 				</div>
 			) : null}
-			<GameScene revealAll={false} debugCameraEnabled={false} audioEnabled={false} inputSource={inputSource} outlinesEnabled={false} />
+			{mode === "full" ? (
+				<GameScene
+					revealAll={false}
+					debugCameraEnabled={false}
+					audioEnabled={false}
+					controlsEnabled={false}
+					outlinesEnabled={false}
+					frameloop="demand"
+					renderFps={renderFps}
+					dpr={0.65}
+					shadows={false}
+				/>
+			) : (
+				<div
+					style={{
+						position: "absolute",
+						inset: 0,
+						display: "flex",
+						alignItems: "center",
+						justifyContent: "center",
+						color: "rgba(216, 229, 246, 0.85)",
+						fontSize: "0.74rem",
+						background: "linear-gradient(140deg, rgba(7, 12, 18, 0.84), rgba(14, 20, 30, 0.7))",
+					}}
+				>
+					Preview paused
+				</div>
+			)}
 		</div>
 	);
 }
 
-function BotClientSlot({ roomId, slot }: { roomId: string; slot: number }) {
+function BotClientSlot({
+	roomId,
+	slot,
+	mode,
+	renderFps,
+	botsPaused,
+}: {
+	roomId: string;
+	slot: number;
+	mode: BotPreviewMode;
+	renderFps: number;
+	botsPaused: boolean;
+}) {
 	const connectBotRoom = useCallback(
 		() =>
 			colyseusClient
@@ -190,16 +224,18 @@ function BotClientSlot({ roomId, slot }: { roomId: string; slot: number }) {
 			connect={connectBotRoom}
 			deps={[roomId, slot]}
 		>
-			<BotViewport slot={slot} />
+			<BotClientViewport slot={slot} mode={mode} renderFps={renderFps} botsPaused={botsPaused} />
 		</RoomProvider>
 	);
 }
 
-export function DevBotsHost({ visible = true }: { visible?: boolean }) {
+export function DevBotsHost({ visible = true, botsPaused = false }: { visible?: boolean; botsPaused?: boolean }) {
 	const { room } = useRoom();
 	const phase = useRoomState((state) => state.phase);
 	const playerCount = useRoomState((state) => schemaMapValues(state.players).length);
 	const targetPlayers = readTargetPlayers();
+	const renderFps = readRenderFps();
+	const maxVisiblePreviews = readMaxVisiblePreviews();
 	const [botCount, setBotCount] = useState(0);
 
 	useEffect(() => {
@@ -221,6 +257,9 @@ export function DevBotsHost({ visible = true }: { visible?: boolean }) {
 		return null;
 	}
 
+	const previewCount = visible ? Math.min(botCount, maxVisiblePreviews) : 0;
+	const slots = Array.from({ length: botCount }, (_, slot) => slot);
+
 	return (
 		<div
 			style={{
@@ -238,9 +277,9 @@ export function DevBotsHost({ visible = true }: { visible?: boolean }) {
 				zIndex: 5,
 			}}
 		>
-			{Array.from({ length: botCount }, (_, slot) => (
+			{slots.map((slot) => (
 				<div
-					key={`bot-view-${slot}`}
+					key={`bot-slot-${slot}`}
 					style={{
 						position: "relative",
 						flex: 1,
@@ -252,7 +291,13 @@ export function DevBotsHost({ visible = true }: { visible?: boolean }) {
 						background: "rgba(9, 13, 21, 0.72)",
 					}}
 				>
-					<BotClientSlot roomId={room.roomId} slot={slot} />
+					<BotClientSlot
+						roomId={room.roomId}
+						slot={slot}
+						mode={visible ? (slot < previewCount ? "full" : "placeholder") : "none"}
+						renderFps={renderFps}
+						botsPaused={botsPaused}
+					/>
 				</div>
 			))}
 		</div>

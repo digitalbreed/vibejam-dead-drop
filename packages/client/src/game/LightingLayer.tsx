@@ -30,8 +30,7 @@ type Fixture = CorridorLight | WallLight;
 
 const WALL_LIGHT_INSET = 0.18;
 const CORRIDOR_ACTIVE_LIGHT_STRIDE = 2;
-const SPECTATOR_LIGHT_BATCH_SIZE = 24;
-const SPECTATOR_LIGHT_BATCH_MS = 16;
+const SPECTATOR_LIGHTS_PER_FRAME = 1;
 
 function shouldEnableCorridorLights(fixture: CorridorLight): boolean {
 	// Corridors can have many cells; enabling a rectAreaLight+pointLight for every cell can cause
@@ -151,17 +150,19 @@ function CorridorFixture({
 	fixture,
 	outlinesEnabled,
 	allowRealtimeLight,
+	visible,
 }: {
 	mode: "off" | "memory" | "active";
 	fixture: CorridorLight;
 	outlinesEnabled: boolean;
 	allowRealtimeLight: boolean;
+	visible: boolean;
 }) {
 	const active = mode === "active";
 	const memory = mode === "memory";
 	const lightsEnabled = active && allowRealtimeLight && shouldEnableCorridorLights(fixture);
 	return (
-		<group position={[fixture.x, fixture.y, fixture.z]} rotation={[0, fixture.rotationY, 0]}>
+		<group position={[fixture.x, fixture.y, fixture.z]} rotation={[0, fixture.rotationY, 0]} visible={visible}>
 			<OutlinedMesh
 				castShadow
 				receiveShadow
@@ -186,16 +187,18 @@ function WallFixture({
 	fixture,
 	outlinesEnabled,
 	allowRealtimeLight,
+	visible,
 }: {
 	mode: "off" | "memory" | "active";
 	fixture: WallLight;
 	outlinesEnabled: boolean;
 	allowRealtimeLight: boolean;
+	visible: boolean;
 }) {
 	const active = mode === "active";
 	const memory = mode === "memory";
 	return (
-		<group position={[fixture.x, fixture.y, fixture.z]} rotation={[0, fixture.rotationY, 0]}>
+		<group position={[fixture.x, fixture.y, fixture.z]} rotation={[0, fixture.rotationY, 0]} visible={visible}>
 			<OutlinedMesh
 				position={[0, 0, 0]}
 				castShadow
@@ -257,49 +260,57 @@ export function LightingLayer({
 			return;
 		}
 		setActiveLightBudget(0);
-		const timer = window.setInterval(() => {
+		let rafId: number | null = null;
+		const step = () => {
 			setActiveLightBudget((current) => {
 				if (current >= fixtures.length) {
 					return current;
 				}
-				return Math.min(fixtures.length, current + SPECTATOR_LIGHT_BATCH_SIZE);
+				rafId = window.requestAnimationFrame(step);
+				return Math.min(fixtures.length, current + SPECTATOR_LIGHTS_PER_FRAME);
 			});
-		}, SPECTATOR_LIGHT_BATCH_MS);
-		return () => window.clearInterval(timer);
+		};
+		rafId = window.requestAnimationFrame(step);
+		return () => {
+			if (rafId !== null) {
+				window.cancelAnimationFrame(rafId);
+			}
+		};
 	}, [fixtures.length, forceAllActive]);
 
 	return (
 		<group>
 			{fixtures.map((fixture, index) => {
-				const cellKey =
-					fixture.kind === "corridor"
-						? `${Math.round(fixture.x / CELL_SIZE)},${Math.round(fixture.z / CELL_SIZE)}`
-						: `${Math.round(fixture.x / CELL_SIZE)},${Math.round(fixture.z / CELL_SIZE)}`;
+					const cellKey =
+						fixture.kind === "corridor"
+							? `${Math.round(fixture.x / CELL_SIZE)},${Math.round(fixture.z / CELL_SIZE)}`
+							: `${Math.round(fixture.x / CELL_SIZE)},${Math.round(fixture.z / CELL_SIZE)}`;
 				const fog = fogByCell.get(cellKey) ?? "hidden";
-				if (fog === "hidden") {
-					return null;
-				}
+				const isVisible = fog !== "hidden" || forceAllActive;
 				const active = forceAllActive || fixture.area === currentArea;
-				const mode: "off" | "memory" | "active" = active ? "active" : fog === "explored" ? "memory" : "off";
-				const allowRealtimeLight = !forceAllActive || index < activeLightBudget;
-				return fixture.kind === "corridor" ? (
-					<CorridorFixture
-						key={`${fixture.area}-${index}`}
-						fixture={fixture}
-						mode={mode}
-						outlinesEnabled={outlinesEnabled}
-						allowRealtimeLight={allowRealtimeLight}
-					/>
-				) : (
-					<WallFixture
-						key={`${fixture.area}-${index}`}
-						fixture={fixture}
-						mode={mode}
-						outlinesEnabled={outlinesEnabled}
-						allowRealtimeLight={allowRealtimeLight}
-					/>
-				);
-			})}
+				const mode: "off" | "memory" | "active" =
+					!isVisible ? "off" : active ? "active" : fog === "explored" ? "memory" : "off";
+				const allowRealtimeLight = index < activeLightBudget;
+					return fixture.kind === "corridor" ? (
+						<CorridorFixture
+							key={`${fixture.area}-${index}`}
+							fixture={fixture}
+							mode={mode}
+							outlinesEnabled={outlinesEnabled}
+							allowRealtimeLight={allowRealtimeLight}
+							visible={isVisible}
+						/>
+					) : (
+						<WallFixture
+							key={`${fixture.area}-${index}`}
+							fixture={fixture}
+							mode={mode}
+							outlinesEnabled={outlinesEnabled}
+							allowRealtimeLight={allowRealtimeLight}
+							visible={isVisible}
+						/>
+					);
+				})}
 		</group>
 	);
 }

@@ -69,13 +69,14 @@ function KeycardMesh({
 }
 
 function GroundKeycard({ card, visible, outlined }: { card: KeycardState; visible: boolean; outlined: boolean }) {
-	if (!visible) {
-		return null;
-	}
 	const color = card.color === "red" ? COLOR_BY_KEYCARD.red : COLOR_BY_KEYCARD.blue;
 	const keyId = card.keyId || card.id || "keycard";
 	const bobSeed = useMemo(() => (keyId.length % 7) * 0.6, [keyId]);
-	return <KeycardMesh x={card.worldX} y={0.11} z={card.worldZ} color={color} bobSeed={bobSeed} animated outlined={outlined} />;
+	return (
+		<group visible={visible}>
+			<KeycardMesh x={card.worldX} y={0.11} z={card.worldZ} color={color} bobSeed={bobSeed} animated outlined={outlined} />
+		</group>
+	);
 }
 
 export function KeycardLayer({

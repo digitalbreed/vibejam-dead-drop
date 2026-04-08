@@ -11,7 +11,7 @@ export type TickerState = {
 
 const FADE_IN_DURATION_MS = 300;
 const FADE_OUT_DURATION_MS = 300;
-const BASE_SCROLL_DURATION_MS = 10000;
+const BASE_SCROLL_DURATION_MS = 7500;
 const PER_CHAR_SCROLL_DURATION_MS = 75;
 
 function getTickerText(event: TickerEvent): string {

@@ -20,9 +20,9 @@ const devBotsEnabled =
 	import.meta.env.DEV &&
 	(import.meta.env.VITE_DEV_BOTS_ENABLED ?? "1").trim() !== "0";
 
-function DevBotsLoader({ visible }: { visible: boolean }) {
+function DevBotsLoader({ visible, botsPaused }: { visible: boolean; botsPaused: boolean }) {
 	const { room } = useRoom();
-	const [Host, setHost] = useState<ComponentType<{ visible?: boolean }> | null>(null);
+	const [Host, setHost] = useState<ComponentType<{ visible?: boolean; botsPaused?: boolean }> | null>(null);
 
 	useEffect(() => {
 		if (!devBotsEnabled) {
@@ -44,13 +44,14 @@ function DevBotsLoader({ visible }: { visible: boolean }) {
 		return null;
 	}
 
-	return <Host visible={visible} />;
+	return <Host visible={visible} botsPaused={botsPaused} />;
 }
 
 function ConnectedFlow() {
 	const { room, error, isConnecting } = useRoom();
 	const phase = useRoomState((s) => s.phase);
-	const [devBotsVisible, setDevBotsVisible] = useState(true);
+	const [devBotsVisible, setDevBotsVisible] = useState(false);
+	const [botsPaused, setBotsPaused] = useState(false);
 
 	if (error) {
 		return (
@@ -75,10 +76,12 @@ function ConnectedFlow() {
 			) : (
 				<GameScreen
 					devBotsVisible={devBotsVisible}
+					botsPaused={botsPaused}
 					onToggleDevBotsVisibility={() => setDevBotsVisible((current) => !current)}
+					onToggleBotsPaused={() => setBotsPaused((current) => !current)}
 				/>
 			)}
-			<DevBotsLoader visible={devBotsVisible} />
+			<DevBotsLoader visible={devBotsVisible} botsPaused={botsPaused} />
 		</>
 	);
 }

@@ -44,7 +44,15 @@ function cabinetPalette(inSameRoom: boolean) {
 	};
 }
 
-function FileCabinetMesh({ cabinet, inSameRoom }: { cabinet: FileCabinetPlacement; inSameRoom: boolean }) {
+function FileCabinetMesh({
+	cabinet,
+	inSameRoom,
+	visible,
+}: {
+	cabinet: FileCabinetPlacement;
+	inSameRoom: boolean;
+	visible: boolean;
+}) {
 	const width = Math.max(0.5, Math.min(2, cabinet.width));
 	const height = Math.max(1, Math.min(2.5, cabinet.height));
 	const depth = Math.max(0.2, Math.min(0.65, cabinet.depth));
@@ -81,7 +89,7 @@ function FileCabinetMesh({ cabinet, inSameRoom }: { cabinet: FileCabinetPlacemen
 	const DRAWER_FRONT_BIAS = 0.04;
 
 	return (
-		<group position={[cabinet.x, height / 2, cabinet.z]} rotation={[0, rotationY, 0]}>
+		<group position={[cabinet.x, height / 2, cabinet.z]} rotation={[0, rotationY, 0]} visible={visible}>
 			<OutlinedMesh
 				receiveShadow
 				castShadow={false}
@@ -146,19 +154,22 @@ export function FileCabinetLayer({
 		<group>
 			{placements.map((cabinet, index) => {
 				const visible = revealAll || fogAtPosition(fogByCell, cabinet.x, cabinet.z) !== "hidden";
-				if (!visible) {
-					return null;
-				}
 				const cellKey = `${Math.round(cabinet.x / CELL_SIZE)},${Math.round(cabinet.z / CELL_SIZE)}`;
 				const cabinetArea = areaInfo.labelByCell.get(cellKey);
 				const inSameRoom =
 					outlinesEnabled &&
 					(forceAllOutlined || !cabinetArea || cabinetArea === currentArea);
 				const renderKey = cabinet.id && cabinet.id.length > 0 ? cabinet.id : `file-cabinet-${index}`;
-				return <FileCabinetMesh key={renderKey} cabinet={cabinet} inSameRoom={inSameRoom} />;
+				return (
+					<FileCabinetMesh
+						key={renderKey}
+						cabinet={cabinet}
+						inSameRoom={inSameRoom}
+						visible={visible}
+					/>
+				);
 			})}
 		</group>
 	);
 }
-
 

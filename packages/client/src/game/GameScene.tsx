@@ -51,16 +51,24 @@ export type PassthroughKind = "none" | "frontWall";
 type KeycardColor = "blue" | "red";
 const SHORT_PRESS_MAX_MS = 220;
 const HOLD_START_DELAY_MS = 180;
+const DEAD_REVEAL_BATCH_SIZE = 560;
+const DEAD_REVEAL_BATCH_MS = 16;
 
 const KEYCARD_COLOR_BY_KIND: Record<KeycardColor, string> = {
 	blue: "#1fb5ff",
 	red: "#ff2c44",
 };
 
-function buildFogByCell(areaInfo: AreaInfo, currentArea: string, visitedAreas: ReadonlySet<string>, revealAll: boolean): Map<string, FogState> {
+function buildFogByCellWithForcedVisible(
+	areaInfo: AreaInfo,
+	currentArea: string,
+	visitedAreas: ReadonlySet<string>,
+	revealAll: boolean,
+	forcedVisibleCells: ReadonlySet<string> | null,
+): Map<string, FogState> {
 	const result = new Map<string, FogState>();
 	for (const [cellKey, area] of areaInfo.labelByCell) {
-		if (revealAll) {
+		if (revealAll || (forcedVisibleCells?.has(cellKey) ?? false)) {
 			result.set(cellKey, "visible");
 			continue;
 		}
@@ -626,6 +634,25 @@ function DebugOrbitCamera({ targetRef, enabled }: { targetRef: React.MutableRefO
 	return null;
 }
 
+function ThrottledInvalidator({ fps }: { fps: number }) {
+	const { invalidate } = useThree();
+
+	useEffect(() => {
+		if (!Number.isFinite(fps) || fps <= 0) {
+			return;
+		}
+		const intervalMs = Math.max(16, Math.round(1000 / fps));
+		const intervalId = window.setInterval(() => {
+			invalidate();
+		}, intervalMs);
+		return () => {
+			window.clearInterval(intervalId);
+		};
+	}, [fps, invalidate]);
+
+	return null;
+}
+
 const windowKeyboardInputSource = createWindowKeyboardInputSource();
 
 function MovementInput({
@@ -807,17 +834,21 @@ function MovementInput({
 function SceneContent({
 	onAreaChange,
 	revealAll,
+	spectatorReveal,
 	debugCameraEnabled,
 	audioEnabled,
 	inputSource,
 	outlinesEnabled,
+	controlsEnabled,
 }: {
 	onAreaChange?: (label: string) => void;
 	revealAll: boolean;
+	spectatorReveal: boolean;
 	debugCameraEnabled: boolean;
 	audioEnabled: boolean;
 	inputSource?: KeyboardInputSource;
 	outlinesEnabled: boolean;
+	controlsEnabled: boolean;
 }) {
 	const { room } = useRoom();
 	const players = useRoomState((s) => s.players);
@@ -908,7 +939,8 @@ function SceneContent({
 		[dynamicWalls, fileCabinetWalls, staticWalls],
 	);
 	const areaInfo = useMemo(() => buildAreaInfo(layout), [layout]);
-	const fogByCell = useMemo(() => buildFogByCell(areaInfo, currentArea, visitedAreas, revealAll), [areaInfo, currentArea, revealAll, visitedAreas]);
+	const allCellKeys = useMemo(() => Array.from(areaInfo.labelByCell.keys()), [areaInfo.labelByCell]);
+	const [deadRevealCount, setDeadRevealCount] = useState(0);
 	const mapBounds = useMemo(() => {
 		let minX = Infinity;
 		let maxX = -Infinity;
@@ -928,7 +960,45 @@ function SceneContent({
 	const localSessionId = room?.sessionId;
 	const localPlayerSnapshot = localSessionId ? getPlayerBySessionId(players, localSessionId) : undefined;
 	const localIsAlive = localPlayerSnapshot?.isAlive !== false;
+	const deadRevealComplete = deadRevealCount >= allCellKeys.length;
+	const revealAllNow = revealAll;
+	const spectatorGlobalActive = spectatorReveal && deadRevealComplete;
+	const forcedVisibleCells = useMemo(() => {
+		if (!spectatorReveal) {
+			return null;
+		}
+		const capped = Math.max(0, Math.min(deadRevealCount, allCellKeys.length));
+		return new Set(allCellKeys.slice(0, capped));
+	}, [allCellKeys, deadRevealCount, spectatorReveal]);
+	const fogByCell = useMemo(
+		() =>
+			buildFogByCellWithForcedVisible(
+				areaInfo,
+				currentArea,
+				visitedAreas,
+				revealAllNow,
+				forcedVisibleCells,
+			),
+		[areaInfo, currentArea, forcedVisibleCells, revealAllNow, visitedAreas],
+	);
 	const cameraTargetRef = localIsAlive ? localVisualRef : spectatorTargetRef;
+
+	useEffect(() => {
+		if (!spectatorReveal) {
+			setDeadRevealCount(0);
+			return;
+		}
+		setDeadRevealCount(0);
+		const timer = window.setInterval(() => {
+			setDeadRevealCount((current) => {
+				if (current >= allCellKeys.length) {
+					return current;
+				}
+				return Math.min(allCellKeys.length, current + DEAD_REVEAL_BATCH_SIZE);
+			});
+		}, DEAD_REVEAL_BATCH_MS);
+		return () => window.clearInterval(timer);
+	}, [allCellKeys.length, spectatorReveal]);
 
 	useEffect(() => {
 		const sessionId = room?.sessionId;
@@ -1061,7 +1131,7 @@ function SceneContent({
 			<DebugOrbitCamera targetRef={cameraTargetRef} enabled={debugCameraEnabled} />
 			<MovementInput
 				inputRef={inputRef}
-				enabled={!debugCameraEnabled}
+				enabled={controlsEnabled && !debugCameraEnabled}
 				inputSource={inputSource}
 				deadMode={!localIsAlive}
 			/>
@@ -1071,7 +1141,7 @@ function SceneContent({
 				areaInfo={areaInfo}
 				currentArea={currentArea}
 				fogByCell={fogByCell}
-				forceAllActive={!localIsAlive}
+				forceAllActive={spectatorGlobalActive}
 				outlinesEnabled={outlinesEnabled}
 			/>
 			<MapLevel
@@ -1080,14 +1150,14 @@ function SceneContent({
 				areaInfo={areaInfo}
 				currentArea={currentArea}
 				playerPositionRef={localVisualRef}
-				forceAllOutlined={!localIsAlive}
+				forceAllOutlined={spectatorGlobalActive}
 				outlinesEnabled={outlinesEnabled}
 			/>
-			<DoorLayer fogByCell={fogByCell} revealAll={revealAll} audioEnabled={audioEnabled} />
+			<DoorLayer fogByCell={fogByCell} revealAll={revealAllNow} audioEnabled={audioEnabled} />
 			<KeycardLayer
 				fogByCell={fogByCell}
-				revealAll={revealAll}
-				forceAllOutlined={!localIsAlive}
+				revealAll={revealAllNow}
+				forceAllOutlined={spectatorGlobalActive}
 				areaInfo={areaInfo}
 				currentArea={currentArea}
 				audioEnabled={audioEnabled}
@@ -1095,8 +1165,8 @@ function SceneContent({
 			/>
 			<SuitcaseLayer
 				fogByCell={fogByCell}
-				revealAll={revealAll}
-				forceAllOutlined={!localIsAlive}
+				revealAll={revealAllNow}
+				forceAllOutlined={spectatorGlobalActive}
 				areaInfo={areaInfo}
 				currentArea={currentArea}
 				audioEnabled={audioEnabled}
@@ -1104,8 +1174,8 @@ function SceneContent({
 			/>
 			<FileCabinetLayer
 				fogByCell={fogByCell}
-				revealAll={revealAll}
-				forceAllOutlined={!localIsAlive}
+				revealAll={revealAllNow}
+				forceAllOutlined={spectatorGlobalActive}
 				mapSeed={mapSeed ?? 0}
 				mapMaxDistance={mapMaxDistance ?? 12}
 				areaInfo={areaInfo}
@@ -1114,8 +1184,8 @@ function SceneContent({
 			/>
 			<VaultLayer
 				fogByCell={fogByCell}
-				revealAll={revealAll}
-				forceAllOutlined={!localIsAlive}
+				revealAll={revealAllNow}
+				forceAllOutlined={spectatorGlobalActive}
 				areaInfo={areaInfo}
 				currentArea={currentArea}
 				audioEnabled={audioEnabled}
@@ -1124,8 +1194,8 @@ function SceneContent({
 			<TrapLayer
 				trapsState={traps}
 				fogByCell={fogByCell}
-				revealAll={revealAll}
-				forceAllOutlined={!localIsAlive}
+				revealAll={revealAllNow}
+				forceAllOutlined={spectatorGlobalActive}
 				mapSeed={mapSeed ?? 0}
 				mapMaxDistance={mapMaxDistance ?? 12}
 				areaInfo={areaInfo}
@@ -1148,7 +1218,7 @@ function SceneContent({
 						interactionStyle={p.interactionStyle}
 						isAlive={p.isAlive}
 					/>
-				) : revealAll || p.area === currentArea ? (
+				) : revealAllNow || p.area === currentArea ? (
 					<PlayerVisual
 						key={p.id}
 						color={p.color}
@@ -1172,28 +1242,51 @@ function SceneContent({
 export function GameScene({
 	onAreaChange,
 	revealAll,
+	spectatorReveal = false,
 	debugCameraEnabled,
 	audioEnabled = true,
 	inputSource,
 	outlinesEnabled = true,
+	frameloop = "always",
+	dpr,
+	shadows = true,
+	renderFps,
+	controlsEnabled = true,
 }: {
 	onAreaChange?: (label: string) => void;
 	revealAll: boolean;
+	spectatorReveal?: boolean;
 	debugCameraEnabled: boolean;
 	audioEnabled?: boolean;
 	inputSource?: KeyboardInputSource;
 	outlinesEnabled?: boolean;
+	frameloop?: "always" | "demand" | "never";
+	dpr?: number | [number, number];
+	shadows?: boolean;
+	renderFps?: number;
+	controlsEnabled?: boolean;
 }) {
 	return (
-		<Canvas shadows camera={{ fov: 50, near: 0.1, far: 500 }} style={{ width: "100%", height: "100%" }}>
+		<Canvas
+			shadows={shadows}
+			frameloop={frameloop}
+			dpr={dpr}
+			camera={{ fov: 50, near: 0.1, far: 500 }}
+			style={{ width: "100%", height: "100%" }}
+		>
 			<color attach="background" args={["#0e141c"]} />
+			{frameloop === "demand" && Number.isFinite(renderFps) && (renderFps ?? 0) > 0 ? (
+				<ThrottledInvalidator fps={renderFps ?? 0} />
+			) : null}
 			<SceneContent
 				onAreaChange={onAreaChange}
 				revealAll={revealAll}
+				spectatorReveal={spectatorReveal}
 				debugCameraEnabled={debugCameraEnabled}
 				audioEnabled={audioEnabled}
 				inputSource={inputSource}
 				outlinesEnabled={outlinesEnabled}
+				controlsEnabled={controlsEnabled}
 			/>
 		</Canvas>
 	);
