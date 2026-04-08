@@ -116,7 +116,7 @@ export function TitleScreen({ onJoin }: TitleScreenProps) {
 										return (
 											<span
 												key={`paper-line-${i}-word-${j}`}
-												className="title-paper-word"
+												className={`title-paper-word ${((i * 13 + j * 7) % 9 === 0) ? "title-paper-word-redacted" : ""}`}
 												style={{ width: `${widthRem.toFixed(2)}rem` }}
 											/>
 										);

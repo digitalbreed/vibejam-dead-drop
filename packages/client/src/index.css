@@ -58,6 +58,10 @@ button {
 	background: rgba(96, 112, 128, 0.38);
 }
 
+.title-paper-word-redacted {
+	background: #000;
+}
+
 .title-paper-shred-particle {
 	position: absolute;
 	top: 0;
