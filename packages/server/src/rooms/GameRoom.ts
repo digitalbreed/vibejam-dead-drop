@@ -86,6 +86,7 @@ export class GameRoom extends Room {
 	private vaultControllers = new Map<string, VaultController>();
 	private fileCabinetControllers = new Map<string, FileCabinetController>();
 	private interactionHold = new Map<string, boolean>();
+	private keycardsPickedUpColors = new Set<string>();
 	maxClients = 16;
 
 	messages = {
@@ -396,6 +397,10 @@ export class GameRoom extends Room {
 		const event = nearest.pickup(sessionId);
 		if (event) {
 			this.broadcast("interactable_event", event, { except: client });
+			if (!this.keycardsPickedUpColors.has(nearest.keycard.color)) {
+				this.keycardsPickedUpColors.add(nearest.keycard.color);
+				this.broadcast("ticker_event", { event: "keycard_first_pickup", color: nearest.keycard.color });
+			}
 		}
 	}
 

@@ -107,3 +107,12 @@ button {
 		opacity: 0;
 	}
 }
+
+@keyframes ticker-scroll {
+	0% {
+		transform: translateX(0);
+	}
+	100% {
+		transform: translateX(calc(-100% - 100vw));
+	}
+}

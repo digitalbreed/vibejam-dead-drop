@@ -29,6 +29,16 @@ type WallLight = {
 type Fixture = CorridorLight | WallLight;
 
 const WALL_LIGHT_INSET = 0.18;
+const CORRIDOR_ACTIVE_LIGHT_STRIDE = 2;
+
+function shouldEnableCorridorLights(fixture: CorridorLight): boolean {
+	// Corridors can have many cells; enabling a rectAreaLight+pointLight for every cell can cause
+	// noticeable hitches on area transitions. Keep emissive fixtures everywhere, but only enable
+	// real lights for a deterministic subset.
+	const ix = Math.round(fixture.x / CELL_SIZE);
+	const iz = Math.round(fixture.z / CELL_SIZE);
+	return (Math.abs(ix) + Math.abs(iz)) % CORRIDOR_ACTIVE_LIGHT_STRIDE === 0;
+}
 
 function hashLabel(label: string): number {
 	let hash = 2166136261 >>> 0;
@@ -137,6 +147,7 @@ function buildFixtures(layout: MapLayout, areaInfo: AreaInfo): Fixture[] {
 function CorridorFixture({ mode, fixture, outlinesEnabled }: { mode: "off" | "memory" | "active"; fixture: CorridorLight; outlinesEnabled: boolean }) {
 	const active = mode === "active";
 	const memory = mode === "memory";
+	const lightsEnabled = active && shouldEnableCorridorLights(fixture);
 	return (
 		<group position={[fixture.x, fixture.y, fixture.z]} rotation={[0, fixture.rotationY, 0]}>
 			<OutlinedMesh
@@ -152,8 +163,8 @@ function CorridorFixture({ mode, fixture, outlinesEnabled }: { mode: "off" | "me
 					/>
 				}
 			/>
-			{active ? <rectAreaLight args={["#cde6ff", 3.4, fixture.length * 0.92, 0.24]} position={[0, -0.1, 0]} rotation={[-Math.PI / 2, 0, 0]} /> : null}
-			{active ? <pointLight color="#d8ebff" intensity={0.75} distance={5.5} decay={2} position={[0, -0.22, 0]} /> : null}
+			{lightsEnabled ? <rectAreaLight args={["#cde6ff", 3.4, fixture.length * 0.92, 0.24]} position={[0, -0.1, 0]} rotation={[-Math.PI / 2, 0, 0]} /> : null}
+			{lightsEnabled ? <pointLight color="#d8ebff" intensity={0.75} distance={5.5} decay={2} position={[0, -0.22, 0]} /> : null}
 		</group>
 	);
 }
@@ -185,7 +196,15 @@ function WallFixture({ mode, fixture, outlinesEnabled }: { mode: "off" | "memory
 					/>
 				}
 			/>
-			{active ? <pointLight color="#ffd7a1" intensity={2.6} distance={14.2} decay={2} position={[0, 0.1, 0.46]} /> : null}
+			{active ? (
+				<pointLight
+					color="#ffd7a1"
+					intensity={2.6}
+					distance={14.2}
+					decay={2}
+					position={[0, 0.1, 0.46]}
+				/>
+			) : null}
 		</group>
 	);
 }
@@ -227,6 +246,4 @@ export function LightingLayer({
 		</group>
 	);
 }
-
-
 

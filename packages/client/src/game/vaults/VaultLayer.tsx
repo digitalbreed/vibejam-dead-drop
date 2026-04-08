@@ -444,7 +444,7 @@ function VaultItem({
 				castShadow
 				receiveShadow
 				outlined={outlined}
-				rotation={[Math.PI / 2, 0, 0]}
+				rotation={[0, 0, 0]}
 				geometryNode={<ringGeometry args={[DOOR_RADIUS + 0.01, DOOR_RADIUS + 0.1, 44]} />}
 				materialNode={<meshToonMaterial color="#4d5863" />}
 			/>

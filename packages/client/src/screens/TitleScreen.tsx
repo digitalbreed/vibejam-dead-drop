@@ -20,6 +20,8 @@ const PAPER_FEED_END_RATIO = 0.92;
 
 export function TitleScreen({ onJoin }: TitleScreenProps) {
 	const [shreds, setShreds] = useState<ShredParticle[]>([]);
+	const [operatorName, setOperatorName] = useState("");
+	const [gameCode, setGameCode] = useState("");
 	const nextShredIdRef = useRef(1);
 
 	useEffect(() => {
@@ -67,10 +69,26 @@ export function TitleScreen({ onJoin }: TitleScreenProps) {
 				textAlign: "center",
 				position: "relative",
 				overflow: "hidden",
+				//background: "#00324f",
 				background:
 					"radial-gradient(ellipse at center, rgba(15,25,40,0.92) 0%, rgba(8,12,18,0.96) 100%)",
+
 			}}
 		>
+			{/* SVG cel-shaded corner curve */}
+			{/* <svg
+				style={{
+					position: "absolute",
+					inset: 0,
+					width: "300%",
+					height: "400%",
+					pointerEvents: "none",
+				}}
+				viewBox="0 0 100 100"
+				preserveAspectRatio="none"
+			>
+				<ellipse cx="120" cy="0" rx="120" ry="100" fill="#002236" />
+			</svg> */}
 			<div
 				style={{
 					position: "relative",
@@ -145,9 +163,9 @@ export function TitleScreen({ onJoin }: TitleScreenProps) {
 					position: "relative",
 					zIndex: 2,
 					padding: "2rem 1.6rem",
-					border: "1px solid rgba(192, 221, 255, 0.3)",
-					background: "linear-gradient(160deg, #08121d 0%, #0c1a2a 62%, #102235 100%)",
-					boxShadow: "0 22px 70px rgba(0, 0, 0, 0.62)",
+					border: "3px solid #1a3045",
+					background: "linear-gradient(165deg, transparent 58%, rgba(20,40,60,0.5) 58%), #0c1a2a",
+					boxShadow: "4px 4px 0 #050a10, 8px 8px 0 rgba(0,0,0,0.3)",
 				}}
 			>
 				<h1
@@ -166,55 +184,83 @@ export function TitleScreen({ onJoin }: TitleScreenProps) {
 				<p style={{ margin: "0.9rem 0 0", opacity: 0.9, lineHeight: 1.45 }}>
 					Corrupt memos, missing evidence, and too many keycards. Pick your operation and start the office espionage.
 				</p>
-				<div style={{ display: "flex", flexDirection: "column", gap: "0.65rem", width: "min(22rem, 100%)", margin: "1.35rem auto 0" }}>
+				<div style={{ display: "flex", flexDirection: "column", gap: "1rem", width: "min(22rem, 100%)", margin: "1.35rem auto 0" }}>
+				<label style={{ display: "flex", flexDirection: "column", gap: "0.3rem", textAlign: "left" }}>
+					<span style={{
+						fontFamily: "'Bebas Neue', Impact, Haettenschweiler, 'Arial Narrow Bold', sans-serif",
+						fontSize: "0.95rem",
+						letterSpacing: "0.1em",
+						textTransform: "uppercase",
+						color: "#8ab4d8",
+					}}>
+						Operator name
+					</span>
+					<input
+						type="text"
+						value={operatorName}
+						onChange={(e) => setOperatorName(e.target.value)}
+						placeholder="e.g. Mata Hari"
+						style={{
+							padding: "0.7rem 1rem",
+							borderRadius: "6px",
+							border: "2px solid #253545",
+							background: "linear-gradient(180deg, #0f1a25 0%, #0f1a25 50%, #0a1218 51%, #0a1218 100%)",
+							color: "#d6e0ea",
+							fontSize: "0.95rem",
+							outline: "none",
+						}}
+					/>
+					<span style={{ fontSize: "0.75rem", color: "#607890", fontStyle: "italic" }}>
+						Auto-assigned if empty
+					</span>
+				</label>
+				<label style={{ display: "flex", flexDirection: "column", gap: "0.3rem", textAlign: "left" }}>
+					<span style={{
+						fontFamily: "'Bebas Neue', Impact, Haettenschweiler, 'Arial Narrow Bold', sans-serif",
+						fontSize: "0.95rem",
+						letterSpacing: "0.1em",
+						textTransform: "uppercase",
+						color: "#8ab4d8",
+					}}>
+						Game code
+					</span>
+					<input
+						type="text"
+						value={gameCode}
+						onChange={(e) => setGameCode(e.target.value)}
+						placeholder="e.g. ABC123"
+						style={{
+							padding: "0.7rem 1rem",
+							borderRadius: "6px",
+							border: "2px solid #253545",
+							background: "linear-gradient(180deg, #0f1a25 0%, #0f1a25 50%, #0a1218 51%, #0a1218 100%)",
+							color: "#d6e0ea",
+							fontSize: "0.95rem",
+							outline: "none",
+						}}
+					/>
+					<span style={{ fontSize: "0.75rem", color: "#607890", fontStyle: "italic" }}>
+						Joining next best public lobby if empty
+					</span>
+				</label>
 				<button
 					type="button"
 					onClick={onJoin}
 					style={{
+						marginTop: "0.5rem",
 						padding: "0.8rem 1.5rem",
 						borderRadius: "8px",
-						border: "1px solid rgba(146, 190, 234, 0.52)",
-						background: "linear-gradient(180deg, #294865 0%, #1c3249 100%)",
+						border: "2px solid #3a5575",
+						background: "linear-gradient(180deg, #2a4560 0%, #2a4560 50%, #1e3550 51%, #1e3550 100%)",
 						color: "#e8eef5",
 						textTransform: "uppercase",
 						letterSpacing: "0.08em",
 						fontFamily: "'Bebas Neue', Impact, Haettenschweiler, 'Arial Narrow Bold', sans-serif",
 						fontSize: "1.15rem",
+						cursor: "pointer",
 					}}
 				>
-					Start operation
-				</button>
-				<button
-					type="button"
-					style={{
-						padding: "0.8rem 1.5rem",
-						borderRadius: "8px",
-						border: "1px solid rgba(128, 160, 194, 0.38)",
-						background: "linear-gradient(180deg, #172432 0%, #0f1a25 100%)",
-						color: "#d6e0ea",
-						textTransform: "uppercase",
-						letterSpacing: "0.08em",
-						fontFamily: "'Bebas Neue', Impact, Haettenschweiler, 'Arial Narrow Bold', sans-serif",
-						fontSize: "1.08rem",
-					}}
-				>
-					Start private game
-				</button>
-				<button
-					type="button"
-					style={{
-						padding: "0.8rem 1.5rem",
-						borderRadius: "8px",
-						border: "1px solid rgba(128, 160, 194, 0.38)",
-						background: "linear-gradient(180deg, #172432 0%, #0f1a25 100%)",
-						color: "#d6e0ea",
-						textTransform: "uppercase",
-						letterSpacing: "0.08em",
-						fontFamily: "'Bebas Neue', Impact, Haettenschweiler, 'Arial Narrow Bold', sans-serif",
-						fontSize: "1.08rem",
-					}}
-				>
-					Join private game
+					Join game
 				</button>
 				</div>
 				</div>

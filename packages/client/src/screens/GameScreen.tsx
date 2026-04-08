@@ -2,6 +2,7 @@ import { useEffect, useState } from "react";
 import type { GameTeam } from "@vibejam/shared";
 import { getLatestRoleAssignment, useRoom, useRoomState } from "../colyseus/roomContext";
 import { GameScene } from "../game/GameScene";
+import { Ticker } from "../game/ticker";
 
 type BriefingStage = "hidden" | "pre-enter" | "center" | "exit";
 
@@ -218,6 +219,7 @@ export function GameScreen() {
 					</div>
 				</div>
 			) : null}
+			<Ticker />
 		</div>
 	);
 }

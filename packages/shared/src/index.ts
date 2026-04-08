@@ -66,4 +66,9 @@ export type GameServerMessages = {
 	interaction_feedback: {
 		kind: "error_beep";
 	};
+	ticker_event:
+		| {
+				event: "keycard_first_pickup";
+				color: string;
+		  };
 };

@@ -715,6 +715,7 @@ function SceneContent({
 	const mapMaxDistance = useRoomState((s) => s.mapMaxDistance);
 	const inputRef = useRef(new Vector2(0, 0));
 	const localVisualRef = useRef(new Vector3(0, 0.5, 0));
+	const authoritativeRef = useRef(new Vector3());
 	const lastAreaRef = useRef<string>("");
 	const [currentArea, setCurrentArea] = useState("Start Room");
 	const [visitedAreas, setVisitedAreas] = useState<Set<string>>(() => new Set(["Start Room"]));
@@ -810,7 +811,8 @@ function SceneContent({
 		}
 
 		const local = players[sessionId];
-		const authoritative = new Vector3(local.x, 0.5, local.z);
+		const authoritative = authoritativeRef.current;
+		authoritative.set(local.x, 0.5, local.z);
 		const predictedStepX = inputRef.current.x * MOVE_SPEED * dt;
 		const predictedStepZ = inputRef.current.y * MOVE_SPEED * dt;
 		const predicted = moveWithCollision(
@@ -893,7 +895,13 @@ function SceneContent({
 			<DebugOrbitCamera targetRef={localVisualRef} enabled={debugCameraEnabled} />
 			<MovementInput inputRef={inputRef} enabled={!debugCameraEnabled} inputSource={inputSource} />
 			<ambientLight intensity={0.42} />
-			<LightingLayer layout={layout} areaInfo={areaInfo} currentArea={currentArea} fogByCell={fogByCell} />
+			<LightingLayer
+				layout={layout}
+				areaInfo={areaInfo}
+				currentArea={currentArea}
+				fogByCell={fogByCell}
+				outlinesEnabled={outlinesEnabled}
+			/>
 			<MapLevel
 				layout={layout}
 				fogByCell={fogByCell}
@@ -926,6 +934,7 @@ function SceneContent({
 				mapMaxDistance={mapMaxDistance ?? 12}
 				areaInfo={areaInfo}
 				currentArea={currentArea}
+				outlinesEnabled={outlinesEnabled}
 			/>
 			<VaultLayer
 				fogByCell={fogByCell}
@@ -960,7 +969,7 @@ function SceneContent({
 						carriedSuitcase={p.carriedSuitcase}
 						isInteracting={p.isInteracting}
 						interactionProgress={p.interactionProgress}
-						outlined={false}
+						outlined={outlinesEnabled}
 					/>
 				) : null,
 			)}
@@ -997,6 +1006,5 @@ export function GameScene({
 		</Canvas>
 	);
 }
-
 
 

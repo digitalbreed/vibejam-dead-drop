@@ -54,21 +54,25 @@ function normalizePortalSideFog(sideFog: FogState, otherSideFog: FogState): FogS
 function makeWallMaterials(
 	positiveNormal: Texture,
 	negativeNormal: Texture,
-	cap: Texture,
 	positiveFog: FogState,
 	negativeFog: FogState,
 ) {
 	const positiveTint = fogTint(positiveFog);
 	const negativeTint = fogTint(negativeFog);
-	const capTint = fogTint(mergeFog(positiveFog, negativeFog));
-	return [
-		new MeshToonMaterial({ map: positiveNormal, color: positiveTint}),
-		new MeshToonMaterial({ map: negativeNormal, color: negativeTint}),
-		new MeshToonMaterial({ map: cap, color: capTint}),
-		new MeshToonMaterial({ map: cap, color: capTint}),
-		new MeshToonMaterial({ map: cap, color: capTint}),
-		new MeshToonMaterial({ map: cap, color: capTint}),
+	const topTint = fogTint(mergeFog(positiveFog, negativeFog));
+	const mats = [
+		new MeshToonMaterial({ map: positiveNormal, color: positiveTint }),
+		new MeshToonMaterial({ map: negativeNormal, color: negativeTint }),
+		new MeshToonMaterial({ color: topTint }),
+		new MeshToonMaterial({ color: topTint }),
+		new MeshToonMaterial({ map: positiveNormal, color: positiveTint }),
+		new MeshToonMaterial({ map: negativeNormal, color: negativeTint }),
 	];
+	for (const mat of mats) {
+		(mat as any).flatShading = true;
+		mat.needsUpdate = true;
+	}
+	return mats;
 }
 
 function makeLeafMaterials(positiveNormal: string, negativeNormal: string, edge: string, metal: string) {
@@ -87,7 +91,6 @@ function PortalFrame({
 	openingHeight,
 	positiveNormalWall,
 	negativeNormalWall,
-	sideCap,
 	positiveFog,
 	negativeFog,
 }: {
@@ -95,17 +98,21 @@ function PortalFrame({
 	openingHeight: number;
 	positiveNormalWall: Texture;
 	negativeNormalWall: Texture;
-	sideCap: Texture;
 	positiveFog: FogState;
 	negativeFog: FogState;
 }) {
 	const materials = useMemo(
-		() => makeWallMaterials(positiveNormalWall, negativeNormalWall, sideCap, positiveFog, negativeFog),
-		[negativeFog, negativeNormalWall, positiveFog, positiveNormalWall, sideCap],
+		() => makeWallMaterials(positiveNormalWall, negativeNormalWall, positiveFog, negativeFog),
+		[negativeFog, negativeNormalWall, positiveFog, positiveNormalWall],
 	);
 	const capMaterial = useMemo(
-		() => new MeshToonMaterial({ map: sideCap, color: fogTint(mergeFog(positiveFog, negativeFog))}),
-		[negativeFog, positiveFog, sideCap],
+		() => {
+			const mat = new MeshToonMaterial({ color: fogTint(mergeFog(positiveFog, negativeFog)) });
+			(mat as any).flatShading = true;
+			mat.needsUpdate = true;
+			return mat;
+		},
+		[negativeFog, positiveFog],
 	);
 	const openingCenterY = openingHeight / 2 - ROOM_HEIGHT / 2;
 	return (
@@ -301,7 +308,6 @@ function DoorItem({
 	side2Fog,
 	side1Wall,
 	side2Wall,
-	sideCap,
 }: {
 	placement: DoorPlacement;
 	doorState?: DoorRenderState;
@@ -309,7 +315,6 @@ function DoorItem({
 	side2Fog: FogState;
 	side1Wall: Texture;
 	side2Wall: Texture;
-	sideCap: Texture;
 }) {
 	const fog = mergeFog(side1Fog, side2Fog);
 	if (fog === "hidden") {
@@ -364,7 +369,6 @@ function DoorItem({
 				openingHeight={openingHeight}
 				positiveNormalWall={normals.positiveWall}
 				negativeNormalWall={normals.negativeWall}
-				sideCap={sideCap}
 				positiveFog={normals.positiveFog}
 				negativeFog={normals.negativeFog}
 			/>
@@ -484,7 +488,6 @@ export function DoorLayer({
 					side2Fog={side2Fog}
 					side1Wall={textures.walls[placement.side1WallStyle]!}
 					side2Wall={textures.walls[placement.side2WallStyle]!}
-					sideCap={textures.wallCaps[placement.side1WallStyle]!}
 				/>
 					);
 				})()
