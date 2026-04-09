@@ -14,13 +14,25 @@ const FADE_OUT_DURATION_MS = 300;
 const BASE_SCROLL_DURATION_MS = 7500;
 const PER_CHAR_SCROLL_DURATION_MS = 75;
 
+const AGENT_DIED_MESSAGES: ReadonlyArray<(name: string) => string> = [
+	(name) => `AGENT ${name} FLATLINED`,
+	(name) => `AGENT ${name} IS NOW A GHOST`,
+	(name) => `${name} GOT PROMOTED TO SPECTATOR`,
+	(name) => `AGENT ${name} NO LONGER OPERATIONAL`,
+	(name) => `${name} HIT THE FLOOR. PERMANENTLY.`,
+	(name) => `${name} JUST FAILED THE VIBE CHECK`,
+	(name) => `AGENT ${name} IS OFFLINE (FOREVER)`,
+	(name) => `${name} MET AN UNFORTUNATE END`,
+];
+
 function getTickerText(event: TickerEvent): string {
 	if (event.event === "keycard_first_pickup") {
 		return `SOMEONE FOUND THE ${event.color.toUpperCase()} KEYCARD`;
 	}
 	if (event.event === "agent_died") {
-		const name = event.agentName.trim();
-		return `${(name || "AN AGENT").toUpperCase()} DIED`;
+		const name = (event.agentName.trim() || "AN AGENT").toUpperCase();
+		const index = Math.floor(Math.random() * AGENT_DIED_MESSAGES.length);
+		return AGENT_DIED_MESSAGES[index]!(name);
 	}
 	if (event.event === "exit_found") {
 		return "SOMEONE FOUND THE EXIT";

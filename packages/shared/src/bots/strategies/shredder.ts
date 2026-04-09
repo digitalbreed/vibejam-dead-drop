@@ -257,10 +257,6 @@ export const ShredderStrategy: BotRoleStrategy = {
 			return { stateKey: "shredder:inactive", moveVector: null };
 		}
 
-		if (context.memory.exitFoundPublic) {
-			return { stateKey: "shredder:round_won_idle", moveVector: null };
-		}
-
 		const droppedSuitcaseDecision = droppedSuitcaseBehavior(context);
 		if (droppedSuitcaseDecision) {
 			return droppedSuitcaseDecision;

@@ -321,7 +321,7 @@ export function GameScreen({
 					lineHeight: 1.3,
 					letterSpacing: "0.03em",
 					textTransform: "uppercase",
-					color: "#9cff9c",
+					color: "#333333",
 					pointerEvents: "none",
 					whiteSpace: "nowrap",
 				}}
