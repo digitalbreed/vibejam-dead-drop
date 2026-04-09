@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import type { GameTeam } from "@vibejam/shared";
 import { getLatestRoleAssignment, useRoom, useRoomState } from "../colyseus/roomContext";
 import { schemaMapValues } from "../colyseus/schemaMap";
@@ -48,8 +48,11 @@ export function GameScreen({
 	const [areaLabel, setAreaLabel] = useState("Start Room");
 	const [revealAll, setRevealAll] = useState(false);
 	const [debugCameraEnabled, setDebugCameraEnabled] = useState(false);
+	const [fps, setFps] = useState(0);
+	const [pingMs, setPingMs] = useState<number | null>(null);
 	const [team, setTeam] = useState<GameTeam | null>(null);
 	const [briefingStage, setBriefingStage] = useState<BriefingStage>("hidden");
+	const fpsRef = useRef(0);
 	const mapSeed = useRoomState((s) => s.mapSeed);
 	const getPlayerBySessionId = (source: unknown, sessionId: string): any => {
 		if (!source) {
@@ -92,6 +95,55 @@ export function GameScreen({
 			setTeam(message.team);
 			setBriefingStage("pre-enter");
 		});
+	}, [room]);
+
+	useEffect(() => {
+		let rafId = 0;
+		let frameCount = 0;
+		let sampleStart = performance.now();
+		const measure = (now: number) => {
+			frameCount += 1;
+			const elapsed = now - sampleStart;
+			if (elapsed >= 500) {
+				const nextFps = Math.round((frameCount * 1000) / elapsed);
+				if (nextFps !== fpsRef.current) {
+					fpsRef.current = nextFps;
+					setFps(nextFps);
+				}
+				frameCount = 0;
+				sampleStart = now;
+			}
+			rafId = window.requestAnimationFrame(measure);
+		};
+		rafId = window.requestAnimationFrame(measure);
+		return () => window.cancelAnimationFrame(rafId);
+	}, []);
+
+	useEffect(() => {
+		if (!room) {
+			setPingMs(null);
+			return;
+		}
+		let cancelled = false;
+		const measurePing = () => {
+			try {
+				room.ping((ms: number) => {
+					if (!cancelled) {
+						setPingMs(Math.round(ms));
+					}
+				});
+			} catch {
+				if (!cancelled) {
+					setPingMs(null);
+				}
+			}
+		};
+		measurePing();
+		const intervalId = window.setInterval(measurePing, 1500);
+		return () => {
+			cancelled = true;
+			window.clearInterval(intervalId);
+		};
 	}, [room]);
 
 	useEffect(() => {
@@ -257,6 +309,24 @@ export function GameScreen({
 						{botsPaused ? "Resume Bots" : "Pause Bots"}
 					</button>
 				) : null}
+			</div>
+			<div
+				style={{
+					position: "fixed",
+					top: 0,
+					right: 0,
+					zIndex: 9,
+					fontFamily: "Arial, sans-serif",
+					fontSize: 11,
+					lineHeight: 1.3,
+					letterSpacing: "0.03em",
+					textTransform: "uppercase",
+					color: "#9cff9c",
+					pointerEvents: "none",
+					whiteSpace: "nowrap",
+				}}
+			>
+				FPS: {fps} PING: {pingMs === null ? "--" : `${pingMs} ms`}
 			</div>
 			<div
 				style={{

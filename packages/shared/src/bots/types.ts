@@ -56,6 +56,14 @@ export type BotSuitcasePerception = {
 	range: number;
 };
 
+export type BotEscapeLadderPerception = {
+	id: string;
+	x: number;
+	z: number;
+	range: number;
+	roomId: number | null;
+};
+
 export type BotTrapPerception = {
 	id: string;
 	ownerSessionId: string;
@@ -92,6 +100,7 @@ export type BotMapAwareness = {
 	roomByCell: Map<string, number>;
 	roomCenters: Map<number, { x: number; z: number }>;
 	chamberRoomIds: Set<number>;
+	escapeLadder: { id: string; x: number; z: number; roomId: number; range: number } | null;
 	doorways: BotDoorway[];
 	doorwaysByRoom: Map<number, BotDoorway[]>;
 	leafChamberRoomIds: Set<number>;
@@ -108,6 +117,7 @@ export type BotPerceptionSnapshot = {
 	keycards: BotKeycardPerception[];
 	vaults: BotVaultPerception[];
 	suitcases: BotSuitcasePerception[];
+	escapeLadders: BotEscapeLadderPerception[];
 	traps: BotTrapPerception[];
 	trapPoints: BotTrapPointPerception[];
 	fileCabinets: BotFileCabinetPerception[];
@@ -139,6 +149,7 @@ export type BotMemory = {
 	ownedDoorTrapDoorIds: Set<string>;
 	seenInteractionByRoom: Map<number, number>;
 	publicKeycardPickupColors: Set<string>;
+	exitFoundPublic: boolean;
 	roleFacts: BotRoleFacts;
 	lastStateKey: string;
 	pauseUntilMs: number;
@@ -186,6 +197,10 @@ export type BotRuntimeConfig = {
 	ambientPauseMinMs: number;
 	/** Maximum duration of ambient pause. */
 	ambientPauseMaxMs: number;
+	/** Movement speed multiplier while carrying the suitcase. */
+	carrierSpeedFactor: number;
+	/** Multiplier for humanization effects while carrying the suitcase (0 = none, 1 = full). */
+	carrierHumanizationScale: number;
 	/** Minimum simulated reaction delay before action commands (interact/trap). */
 	actionDelayMinMs: number;
 	/** Maximum simulated reaction delay before action commands (interact/trap). */

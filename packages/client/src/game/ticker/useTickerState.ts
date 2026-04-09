@@ -22,6 +22,9 @@ function getTickerText(event: TickerEvent): string {
 		const name = event.agentName.trim();
 		return `${(name || "AN AGENT").toUpperCase()} DIED`;
 	}
+	if (event.event === "exit_found") {
+		return "SOMEONE FOUND THE EXIT";
+	}
 	return "UNKNOWN EVENT";
 }
 

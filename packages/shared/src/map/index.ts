@@ -54,6 +54,11 @@ export {
 	type FileCabinetFacing,
 } from "./fileCabinets.js";
 export {
+	generateEscapeLadderPlacement,
+	buildEscapeLadderCollisionWalls,
+	type EscapeLadderPlacement,
+} from "./escapeLadder.js";
+export {
 	canonicalEdgeKey,
 	generateMapLayout,
 	layoutOccupancy,

@@ -153,3 +153,20 @@ export function ThrottledInvalidator({ fps }: { fps: number }) {
 
 	return null;
 }
+
+export function DisableCanvasContextMenu() {
+	const { gl } = useThree();
+
+	useEffect(() => {
+		const element = gl.domElement;
+		const onContextMenu = (e: MouseEvent) => {
+			e.preventDefault();
+		};
+		element.addEventListener("contextmenu", onContextMenu);
+		return () => {
+			element.removeEventListener("contextmenu", onContextMenu);
+		};
+	}, [gl]);
+
+	return null;
+}

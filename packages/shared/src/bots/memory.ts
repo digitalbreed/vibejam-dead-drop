@@ -7,6 +7,7 @@ export function createInitialBotMemory(): BotMemory {
 		ownedDoorTrapDoorIds: new Set<string>(),
 		seenInteractionByRoom: new Map<number, number>(),
 		publicKeycardPickupColors: new Set<string>(),
+		exitFoundPublic: false,
 		roleFacts: {
 			designatedCarrier: false,
 		},
@@ -34,6 +35,9 @@ export function ingestEvent(memory: BotMemory, event: BotEventEnvelope): void {
 	if (event.type === "ticker_event") {
 		if (event.message.event === "keycard_first_pickup") {
 			memory.publicKeycardPickupColors.add(event.message.color);
+		}
+		if (event.message.event === "exit_found") {
+			memory.exitFoundPublic = true;
 		}
 		return;
 	}

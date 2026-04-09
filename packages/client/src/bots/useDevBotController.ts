@@ -27,6 +27,7 @@ type BotDoorPerception = BotPerceptionSnapshot["doors"][number];
 type BotKeycardPerception = BotPerceptionSnapshot["keycards"][number];
 type BotVaultPerception = BotPerceptionSnapshot["vaults"][number];
 type BotSuitcasePerception = BotPerceptionSnapshot["suitcases"][number];
+type BotEscapeLadderPerception = BotPerceptionSnapshot["escapeLadders"][number];
 type BotTrapPerception = BotPerceptionSnapshot["traps"][number];
 type BotFileCabinetPerception = BotPerceptionSnapshot["fileCabinets"][number];
 
@@ -121,6 +122,7 @@ export function useDevBotController(params: UseDevBotControllerParams) {
 		keycards: new Map<string, BotKeycardPerception>(),
 		vaults: new Map<string, BotVaultPerception>(),
 		suitcases: new Map<string, BotSuitcasePerception>(),
+		escapeLadders: new Map<string, BotEscapeLadderPerception>(),
 		traps: new Map<string, BotTrapPerception>(),
 		trapPoints: new Map<string, BotTrapPointPerception>(),
 		fileCabinets: new Map<string, BotFileCabinetPerception>(),
@@ -334,6 +336,30 @@ export function useDevBotController(params: UseDevBotControllerParams) {
 						range: typeof suitcase.range === "number" ? suitcase.range : 0,
 					};
 					caches.suitcases.set(id, created);
+					return created;
+				}),
+				escapeLadders: schemaMapValues<any>(snapshotState.escapeLadders).map((ladderState) => {
+					const id = String(ladderState.id ?? "");
+					const known = map.escapeLadder;
+					const x = known?.x ?? 0;
+					const z = known?.z ?? 0;
+					const range = known?.range ?? 2.1;
+					const cached = caches.escapeLadders.get(id);
+					if (cached) {
+						cached.x = x;
+						cached.z = z;
+						cached.range = range;
+						cached.roomId = null;
+						return cached;
+					}
+					const created: BotEscapeLadderPerception = {
+						id,
+						x,
+						z,
+						range,
+						roomId: null,
+					};
+					caches.escapeLadders.set(id, created);
 					return created;
 				}),
 				traps: schemaMapValues<any>(snapshotState.traps).map((trap) => {

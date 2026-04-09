@@ -6,6 +6,7 @@ export {
 	SuitcaseState,
 	VaultState,
 	FileCabinetState,
+	EscapeLadderState,
 	TrapState,
 	TrapPointState,
 } from "./schema/Interactables.js";
@@ -83,5 +84,8 @@ export type GameServerMessages = {
 		| {
 				event: "agent_died";
 				agentName: string;
+		  }
+		| {
+				event: "exit_found";
 		  };
 };

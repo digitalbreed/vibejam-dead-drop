@@ -5,9 +5,11 @@ import {
 	buildClosedDoorWalls,
 	buildCollisionWalls,
 	buildFileCabinetCollisionWalls,
+	buildEscapeLadderCollisionWalls,
 	buildVaultCollisionWalls,
 	CELL_SIZE,
 	type GameServerMessages,
+	generateEscapeLadderPlacement,
 	generateFileCabinetPlacements,
 	generateVaultPlacement,
 	generateMapLayout,
@@ -27,10 +29,12 @@ import { MapLevel } from "./MapLevel";
 import { SuitcaseLayer } from "./suitcases/SuitcaseLayer";
 import { VaultLayer } from "./vaults/VaultLayer";
 import { FileCabinetLayer } from "./fileCabinets/FileCabinetLayer";
+import { EscapeLadderLayer } from "./escapeLadder/EscapeLadderLayer";
 import { CelRenderLayer } from "./celRender";
 import { TrapLayer } from "./traps/TrapLayer";
-import { DebugOrbitCamera, ThirdPersonCamera, ThrottledInvalidator } from "./scene/CameraControllers";
+import { DebugOrbitCamera, DisableCanvasContextMenu, ThirdPersonCamera, ThrottledInvalidator } from "./scene/CameraControllers";
 import { ComicExplosionEffect, EXPLOSION_FX_DURATION_MS } from "./scene/ComicExplosionEffect";
+import { DeathGhostLayer } from "./scene/DeathGhostLayer";
 import { MovementInput } from "./scene/MovementInput";
 import { PlayerVisual, type KeycardColor } from "./scene/PlayerVisual";
 
@@ -229,6 +233,16 @@ function buildAreaInfo(layout: ReturnType<typeof generateMapLayout>): AreaInfo {
 		}
 	}
 
+	// Override the room that contains the escape ladder.
+	const ladderPlacement = generateEscapeLadderPlacement(layout);
+	if (ladderPlacement) {
+		for (const [cellKey, roomId] of roomMap) {
+			if (roomId === ladderPlacement.roomId) {
+				labelByCell.set(cellKey, "Emergency Exit");
+			}
+		}
+	}
+
 	return { labelByCell };
 }
 
@@ -271,7 +285,10 @@ function SceneContent({
 	const [currentArea, setCurrentArea] = useState("Start Room");
 	const [visitedAreas, setVisitedAreas] = useState<Set<string>>(() => new Set(["Start Room"]));
 	const [explosions, setExplosions] = useState<ExplosionFx[]>([]);
+	const [deathStartedAtMsById, setDeathStartedAtMsById] = useState<Map<string, number>>(() => new Map());
+	const [localGhostFollowCamera, setLocalGhostFollowCamera] = useState(false);
 	const explosionIdRef = useRef(0);
+	const previousAliveByIdRef = useRef(new Map<string, boolean>());
 	const audioContextRef = useRef<AudioContext | null>(null);
 
 	useEffect(() => {
@@ -434,6 +451,10 @@ function SceneContent({
 		() => buildFileCabinetCollisionWalls(generateFileCabinetPlacements(layout)),
 		[layout],
 	);
+	const escapeLadderWalls = useMemo(() => {
+		const placement = generateEscapeLadderPlacement(layout);
+		return buildEscapeLadderCollisionWalls(placement ? [placement] : []);
+	}, [layout]);
 	const dynamicWalls = useMemo(() => {
 		const doors = schemaMapValues<DoorState>(interactables);
 		const syncedVaults = schemaMapValues<{ x: number; z: number }>(vaults);
@@ -460,8 +481,8 @@ function SceneContent({
 		).concat(vaultWalls);
 	}, [interactables, vaults]);
 	const walls = useMemo(
-		() => [...staticWalls, ...dynamicWalls, ...fileCabinetWalls],
-		[dynamicWalls, fileCabinetWalls, staticWalls],
+		() => [...staticWalls, ...dynamicWalls, ...fileCabinetWalls, ...escapeLadderWalls],
+		[dynamicWalls, escapeLadderWalls, fileCabinetWalls, staticWalls],
 	);
 	const areaInfo = useMemo(() => buildAreaInfo(layout), [layout]);
 	const [deadRevealAreaCount, setDeadRevealAreaCount] = useState(0);
@@ -569,6 +590,36 @@ function SceneContent({
 		}
 	}, [players, room]);
 
+	useEffect(() => {
+		const entries: Array<[string, any]> =
+			typeof players === "object" && players !== null && "entries" in players && typeof (players as { entries: () => Iterable<[string, any]> }).entries === "function"
+				? Array.from((players as { entries: () => Iterable<[string, any]> }).entries())
+				: Object.entries((players as Record<string, any>) ?? {});
+		const now = performance.now();
+		const nextAlive = new Map<string, boolean>();
+		setDeathStartedAtMsById((current) => {
+			const next = new Map(current);
+			for (const [id, player] of entries) {
+				const alive = player?.isAlive !== false;
+				nextAlive.set(id, alive);
+				const previousAlive = previousAliveByIdRef.current.get(id);
+				if (!alive && previousAlive !== false && !next.has(id)) {
+					next.set(id, now);
+				}
+				if (alive && next.has(id)) {
+					next.delete(id);
+				}
+			}
+			for (const knownId of [...next.keys()]) {
+				if (!nextAlive.has(knownId)) {
+					next.delete(knownId);
+				}
+			}
+			return next;
+		});
+		previousAliveByIdRef.current = nextAlive;
+	}, [players]);
+
 	useFrame((_, dt) => {
 		const sessionId = room?.sessionId;
 		const local = sessionId ? getPlayerBySessionId(players, sessionId) : undefined;
@@ -598,8 +649,14 @@ function SceneContent({
 				deadCameraFollowRef.current = false;
 			}
 			if (deadCameraFollowRef.current) {
+				if (localGhostFollowCamera) {
+					setLocalGhostFollowCamera(false);
+				}
 				spectatorTargetRef.current.set(localVisualRef.current.x, 0.5, localVisualRef.current.z);
 				return;
+			}
+			if (!localGhostFollowCamera) {
+				setLocalGhostFollowCamera(true);
 			}
 			const panSpeed = MOVE_SPEED * 1.2;
 			spectatorTargetRef.current.x = clamp(
@@ -615,6 +672,9 @@ function SceneContent({
 			return;
 		}
 		deadStateRef.current = false;
+		if (localGhostFollowCamera) {
+			setLocalGhostFollowCamera(false);
+		}
 		const authoritative = authoritativeRef.current;
 		authoritative.set(local.x, 0.5, local.z);
 		const predictedStepX = inputRef.current.x * MOVE_SPEED * dt;
@@ -681,6 +741,7 @@ function SceneContent({
 		}
 		return playerEntries.map(([id, p]) => ({
 			id,
+			name: typeof p.name === "string" ? p.name : "",
 			x: p.x,
 			z: p.z,
 			color: p.color,
@@ -757,6 +818,16 @@ function SceneContent({
 				currentArea={currentArea}
 				outlinesEnabled={outlinesEnabled}
 			/>
+			<EscapeLadderLayer
+				fogByCell={fogByCell}
+				revealAll={revealAllNow}
+				forceAllOutlined={spectatorGlobalActive}
+				mapSeed={mapSeed ?? 0}
+				mapMaxDistance={mapMaxDistance ?? 12}
+				areaInfo={areaInfo}
+				currentArea={currentArea}
+				outlinesEnabled={outlinesEnabled}
+			/>
 			<VaultLayer
 				fogByCell={fogByCell}
 				revealAll={revealAllNow}
@@ -784,6 +855,13 @@ function SceneContent({
 				}
 				return <ComicExplosionEffect key={fx.id} x={fx.x} z={fx.z} spawnMs={fx.spawnMs} />;
 			})}
+			<DeathGhostLayer
+				players={list}
+				deathStartedAtMsById={deathStartedAtMsById}
+				localSessionId={localSessionId}
+				localCameraAttach={localGhostFollowCamera}
+				cameraAnchorRef={spectatorTargetRef}
+			/>
 			{list.map((p) =>
 				p.isLocal ? (
 					<PlayerVisual
@@ -807,6 +885,8 @@ function SceneContent({
 						isLocal={false}
 						target={{ x: p.x, z: p.z }}
 						smoothing={18}
+						nameLabel={p.name}
+						showNameLabel
 						carriedKeycardColor={p.carriedKeycardColor}
 						carriedSuitcase={p.carriedSuitcase}
 						isInteracting={false}
@@ -856,6 +936,7 @@ export function GameScene({
 			camera={{ fov: 50, near: 0.1, far: 500 }}
 			style={{ width: "100%", height: "100%" }}
 		>
+			<DisableCanvasContextMenu />
 			<color attach="background" args={["#0e141c"]} />
 			{frameloop === "demand" && Number.isFinite(renderFps) && (renderFps ?? 0) > 0 ? (
 				<ThrottledInvalidator fps={renderFps ?? 0} />

@@ -2,6 +2,7 @@ import { Room, Client } from "colyseus";
 import {
 	buildVaultCollisionWalls,
 	DoorState,
+	EscapeLadderState,
 	type FileCabinetFacing,
 	FileCabinetState,
 	GameState,
@@ -16,8 +17,11 @@ import {
 	buildClosedDoorWalls,
 	buildCollisionWalls,
 	buildFileCabinetCollisionWalls,
+	buildEscapeLadderCollisionWalls,
 	CELL_SIZE,
+	layoutRoomMap,
 	generateDoorPlacements,
+	generateEscapeLadderPlacement,
 	generateKeycardPlacements,
 	generateMapLayout,
 	moveWithCollision,
@@ -29,6 +33,7 @@ import {
 	type WallRect,
 } from "@vibejam/shared";
 import { DoorController } from "./interactables/DoorController.js";
+import { EscapeLadderController } from "./interactables/EscapeLadderController.js";
 import { FileCabinetController } from "./interactables/FileCabinetController.js";
 import { KeycardController } from "./interactables/KeycardController.js";
 import { SuitcaseController } from "./interactables/SuitcaseController.js";
@@ -133,7 +138,7 @@ function computeEnforcerCount(playerCount: number): number {
 	return Math.min(playerCount - 1, Math.max(1, ratioRounded));
 }
 
-type TrapTargetKind = "door" | "vault" | "file_cabinet" | "suitcase" | "keycard";
+type TrapTargetKind = "door" | "vault" | "file_cabinet" | "escape_ladder" | "suitcase" | "keycard";
 
 type TrapPlacementCandidate = {
 	targetKind: TrapTargetKind;
@@ -204,16 +209,20 @@ export class GameRoom extends Room {
 	private input = new Map<string, { x: number; z: number }>();
 	private layout!: MapLayout;
 	private staticWalls: WallRect[] = [];
+	private emergencyExitRoomId: number | null = null;
+	private hasBroadcastExitFound = false;
 	private doorControllers: DoorController[] = [];
 	private keycardControllers = new Map<string, KeycardController>();
 	private suitcaseControllers = new Map<string, SuitcaseController>();
 	private vaultControllers = new Map<string, VaultController>();
 	private fileCabinetControllers = new Map<string, FileCabinetController>();
+	private escapeLadderControllers = new Map<string, EscapeLadderController>();
 	private interactionHold = new Map<string, boolean>();
 	private trapHold = new Map<string, boolean>();
 	private pendingTrapPlacement = new Map<string, TrapPlacementCandidate>();
 	private deadKnockback = new Map<string, DeadKnockbackState>();
 	private keycardsPickedUpColors = new Set<string>();
+	private exitFoundBroadcasted = false;
 	maxClients = 16;
 
 	messages = {
@@ -246,14 +255,22 @@ export class GameRoom extends Room {
 		const cap = Math.min(64, Math.max(2, options?.mapMaxDistance ?? DEFAULT_MAP_MAX_DISTANCE));
 		this.state.mapMaxDistance = cap;
 		this.layout = generateMapLayout(this.state.mapSeed, this.state.mapMaxDistance);
+		this.emergencyExitRoomId = generateEscapeLadderPlacement(this.layout)?.roomId ?? null;
 		this.staticWalls = buildCollisionWalls(this.layout);
 		this.createInteractables();
 		this.staticWalls = [
 			...this.staticWalls,
 			...buildVaultCollisionWalls(Array.from(this.state.vaults.values(), (vault) => ({ x: vault.x, z: vault.z }))),
 			...buildFileCabinetCollisionWalls(generateFileCabinetPlacements(this.layout)),
+			...buildEscapeLadderCollisionWalls(
+				(() => {
+					const placement = generateEscapeLadderPlacement(this.layout);
+					return placement ? [placement] : [];
+				})(),
+			),
 		];
 		this.setSimulationInterval((deltaTime) => this.tick(deltaTime), 1000 / 20);
+		this.exitFoundBroadcasted = false;
 	}
 
 	onJoin(client: Client, options: JoinOptions = {}) {
@@ -310,6 +327,7 @@ export class GameRoom extends Room {
 		this.suitcaseControllers.clear();
 		this.vaultControllers.clear();
 		this.fileCabinetControllers.clear();
+		this.escapeLadderControllers.clear();
 	}
 
 	private tryStartMatch() {
@@ -390,6 +408,25 @@ export class GameRoom extends Room {
 			player.x = next.x;
 			player.z = next.z;
 		});
+
+		// One-time public ticker: first time any player enters the Emergency Exit room.
+		if (!this.hasBroadcastExitFound && this.emergencyExitRoomId !== null) {
+			const roomMap = layoutRoomMap(this.layout);
+			for (const player of this.state.players.values()) {
+				if (!player.isAlive) {
+					continue;
+				}
+				const ix = Math.round(player.x / CELL_SIZE);
+				const iz = Math.round(player.z / CELL_SIZE);
+				const roomId = roomMap.get(`${ix},${iz}`);
+				if (roomId === this.emergencyExitRoomId) {
+					this.hasBroadcastExitFound = true;
+					this.broadcast("ticker_event", { event: "exit_found" });
+					break;
+				}
+			}
+		}
+
 		this.tickDeadKnockback(dt, walls);
 		this.checkDoorTrapCrossings(previousPositionBySessionId);
 		this.tickInteractions(deltaMs);
@@ -401,17 +438,21 @@ export class GameRoom extends Room {
 		this.state.suitcases.clear();
 		this.state.vaults.clear();
 		this.state.fileCabinets.clear();
+		this.state.escapeLadders.clear();
 		this.state.traps.clear();
 		this.doorControllers = [];
 		this.keycardControllers.clear();
 		this.suitcaseControllers.clear();
 		this.vaultControllers.clear();
 		this.fileCabinetControllers.clear();
+		this.escapeLadderControllers.clear();
+		this.exitFoundBroadcasted = false;
 		this.createVaults();
 		this.createDoors();
 		this.createKeycards();
 		this.createSuitcases();
 		this.createFileCabinets();
+		this.createEscapeLadder();
 	}
 
 	private createVaults() {
@@ -506,6 +547,18 @@ export class GameRoom extends Room {
 		}
 	}
 
+	private createEscapeLadder() {
+		const placement = generateEscapeLadderPlacement(this.layout);
+		if (!placement) {
+			return;
+		}
+		const ladder = new EscapeLadderState();
+		ladder.id = placement.id;
+		ladder.kind = "escape_ladder";
+		this.state.escapeLadders.set(ladder.id, ladder);
+		this.escapeLadderControllers.set(ladder.id, new EscapeLadderController(ladder, placement));
+	}
+
 	private handleInteract(client: Client) {
 		const sessionId = client.sessionId;
 		const player = this.state.players.get(sessionId);
@@ -530,6 +583,11 @@ export class GameRoom extends Room {
 		if (carried) {
 			const vault = this.findNearestInsertableVault(player, carried.keycard);
 			if (vault) {
+				const trap = this.findActiveTrapForTarget("vault", vault.vault.id);
+				if (trap) {
+					this.triggerTrap(trap, sessionId);
+					return;
+				}
 				const events = vault.insertCard(carried.keycard, sessionId);
 				if (events.length > 0) {
 					carried.setContained(vault.vault.id);
@@ -697,7 +755,7 @@ export class GameRoom extends Room {
 
 	private findInteractionCandidate(
 		player: Player,
-	): { kind: "vault" | "file_cabinet"; id: string; durationMs: number } | null {
+	): { kind: "vault" | "file_cabinet" | "escape_ladder"; id: string; durationMs: number } | null {
 		let nearestCabinet: FileCabinetController | null = null;
 		let nearestCabinetDistSq = Infinity;
 		for (const controller of this.fileCabinetControllers.values()) {
@@ -728,11 +786,38 @@ export class GameRoom extends Room {
 			}
 		}
 
-		if (!nearestCabinet && !nearestVault) {
+		let nearestLadder: EscapeLadderController | null = null;
+		let nearestLadderDistSq = Infinity;
+		for (const controller of this.escapeLadderControllers.values()) {
+			if (!controller.canCompleteInteraction(player)) {
+				continue;
+			}
+			const dx = player.x - controller.placementSnapshot.x;
+			const dz = player.z - controller.placementSnapshot.z;
+			const distSq = dx * dx + dz * dz;
+			if (distSq < nearestLadderDistSq) {
+				nearestLadderDistSq = distSq;
+				nearestLadder = controller;
+			}
+		}
+
+		if (!nearestCabinet && !nearestVault && !nearestLadder) {
 			return null;
 		}
-		if (nearestCabinet && (!nearestVault || nearestCabinetDistSq <= nearestVaultDistSq)) {
-			return { kind: "file_cabinet", id: nearestCabinet.cabinet.id, durationMs: INTERACTION_DURATION_MS };
+
+		// Choose nearest among eligible hold interactions.
+		const bestKind =
+			nearestLadder && (!nearestCabinet || nearestLadderDistSq <= nearestCabinetDistSq) && (!nearestVault || nearestLadderDistSq <= nearestVaultDistSq)
+				? ("escape_ladder" as const)
+				: nearestCabinet && (!nearestVault || nearestCabinetDistSq <= nearestVaultDistSq)
+					? ("file_cabinet" as const)
+					: ("vault" as const);
+
+		if (bestKind === "escape_ladder") {
+			return { kind: "escape_ladder", id: nearestLadder!.ladder.id, durationMs: INTERACTION_DURATION_MS };
+		}
+		if (bestKind === "file_cabinet") {
+			return { kind: "file_cabinet", id: nearestCabinet!.cabinet.id, durationMs: INTERACTION_DURATION_MS };
 		}
 		return { kind: "vault", id: nearestVault!.vault.id, durationMs: INTERACTION_DURATION_MS };
 	}
@@ -856,6 +941,32 @@ export class GameRoom extends Room {
 			}
 		}
 
+		for (const controller of this.escapeLadderControllers.values()) {
+			if (!controller.isInRange(player)) {
+				continue;
+			}
+			const dx = player.x - controller.placementSnapshot.x;
+			const dz = player.z - controller.placementSnapshot.z;
+			const distSq = dx * dx + dz * dz;
+			const outward = this.outwardCardinalFromObjectToPlayer(
+				controller.placementSnapshot.x,
+				controller.placementSnapshot.z,
+				player,
+			);
+			const candidate: TrapPlacementCandidate & { distSq: number } = {
+				targetKind: "escape_ladder",
+				targetId: controller.ladder.id,
+				slotIndex,
+				outwardX: outward.x,
+				outwardZ: outward.z,
+				doorSide: 1,
+				distSq,
+			};
+			if (!best || candidate.distSq < best.distSq) {
+				best = candidate;
+			}
+		}
+
 		for (const controller of this.suitcaseControllers.values()) {
 			if (!controller.isGrounded() || !controller.isInRange(player)) {
 				continue;
@@ -939,6 +1050,10 @@ export class GameRoom extends Room {
 			const controller = this.fileCabinetControllers.get(targetId);
 			return !!controller && controller.isInRange(player) && controller.isPlayerInFront(player);
 		}
+		if (targetKind === "escape_ladder") {
+			const controller = this.escapeLadderControllers.get(targetId);
+			return !!controller && controller.isInRange(player);
+		}
 		if (targetKind === "suitcase") {
 			const controller = this.suitcaseControllers.get(targetId);
 			return !!controller && controller.isGrounded() && controller.isInRange(player);
@@ -1010,6 +1125,10 @@ export class GameRoom extends Room {
 				controller.isPlayerInFront(player)
 			);
 		}
+		if (player.interactionKind === "escape_ladder") {
+			const controller = this.escapeLadderControllers.get(player.interactionTargetId);
+			return !!controller && controller.isInRange(player);
+		}
 		return false;
 	}
 
@@ -1029,8 +1148,32 @@ export class GameRoom extends Room {
 		} else if (player.interactionKind === "file_cabinet") {
 			const controller = this.fileCabinetControllers.get(player.interactionTargetId);
 			if (controller && controller.canCompleteInteraction(player)) {
+				const trap = this.findActiveTrapForTarget("file_cabinet", controller.cabinet.id);
+				if (trap) {
+					this.triggerTrap(trap, sessionId);
+					this.resetInteractionState(player);
+					return;
+				}
 				for (const event of controller.completeInteraction(sessionId)) {
 					this.broadcast("interactable_event", event);
+				}
+			}
+		} else if (player.interactionKind === "escape_ladder") {
+			const controller = this.escapeLadderControllers.get(player.interactionTargetId);
+			if (controller && controller.canCompleteInteraction(player)) {
+				const trap = this.findActiveTrapForTarget("escape_ladder", controller.ladder.id);
+				if (trap) {
+					this.triggerTrap(trap, sessionId);
+					this.resetInteractionState(player);
+					return;
+				}
+				const carriedSuitcase = this.findCarriedSuitcase(sessionId);
+				if (carriedSuitcase) {
+					carriedSuitcase.setUsed();
+					if (!this.exitFoundBroadcasted) {
+						this.exitFoundBroadcasted = true;
+						this.broadcast("ticker_event", { event: "exit_found" });
+					}
 				}
 			}
 		}
@@ -1137,7 +1280,7 @@ export class GameRoom extends Room {
 	}
 
 	private isInteractionTargetBusy(
-		interactionKind: "vault" | "file_cabinet" | "trap_place",
+		interactionKind: "vault" | "file_cabinet" | "escape_ladder" | "trap_place",
 		targetId: string,
 		excludingSessionId: string,
 	): boolean {
@@ -1223,17 +1366,18 @@ export class GameRoom extends Room {
 		this.pendingTrapPlacement.delete(sessionId);
 		this.input.set(sessionId, { x: 0, z: 0 });
 		this.startDeadKnockback(sessionId, player, triggerTrap, blastDirection);
+		const deathDrop = this.computeNearbyDropPosition(player);
 
 		const carried = this.findCarriedKeycard(sessionId);
 		if (carried) {
-			const event = carried.drop(sessionId, player.x, player.z);
+			const event = carried.drop(sessionId, deathDrop.x, deathDrop.z);
 			if (event) {
 				this.broadcast("interactable_event", event);
 			}
 		}
 		const carriedSuitcase = this.findCarriedSuitcase(sessionId);
 		if (carriedSuitcase) {
-			const event = carriedSuitcase.drop(sessionId, player.x, player.z);
+			const event = carriedSuitcase.drop(sessionId, deathDrop.x, deathDrop.z);
 			if (event) {
 				this.broadcast("interactable_event", event);
 			}
@@ -1388,6 +1532,63 @@ export class GameRoom extends Room {
 		return { x: dx / len, z: dz / len };
 	}
 
+	private outwardCardinalFromObjectToPlayer(x: number, z: number, player: Player): XY {
+		const dx = player.x - x;
+		const dz = player.z - z;
+		// Snap to cardinal directions so trap visuals align cleanly.
+		if (Math.abs(dx) >= Math.abs(dz)) {
+			return { x: dx >= 0 ? 1 : -1, z: 0 };
+		}
+		return { x: 0, z: dz >= 0 ? 1 : -1 };
+	}
+
+	private computeNearbyDropPosition(player: Player): XY {
+		const walls = this.currentCollisionWalls();
+		const vaultAvoidRadiusSq = (CELL_SIZE * 0.38) * (CELL_SIZE * 0.38);
+		const baseAngle = Math.random() * Math.PI * 2;
+		let best: { x: number; z: number; moved: number } = { x: player.x, z: player.z, moved: 0 };
+		for (let i = 0; i < 14; i++) {
+			const angle = baseAngle + (Math.PI * 2 * i) / 14;
+			const radius = 0.38 + (i % 4) * 0.14;
+			const candidate = moveWithCollision(
+				player.x,
+				player.z,
+				Math.cos(angle) * radius,
+				Math.sin(angle) * radius,
+				walls,
+			);
+			let blockedByVault = false;
+			for (const vault of this.state.vaults.values()) {
+				const dx = candidate.x - vault.x;
+				const dz = candidate.z - vault.z;
+				if (dx * dx + dz * dz <= vaultAvoidRadiusSq) {
+					blockedByVault = true;
+					break;
+				}
+			}
+			if (blockedByVault) {
+				continue;
+			}
+			const moved = Math.hypot(candidate.x - player.x, candidate.z - player.z);
+			if (moved > best.moved) {
+				best = { x: candidate.x, z: candidate.z, moved };
+			}
+		}
+		return { x: best.x, z: best.z };
+	}
+
+	private currentCollisionWalls(): WallRect[] {
+		const dynamicWalls = buildClosedDoorWalls(
+			Array.from(this.state.interactables.values(), (door) => ({
+				x: door.x,
+				z: door.z,
+				facing: door.facing === "z" ? "z" : "x",
+				isOpen: door.isOpen,
+			})),
+		);
+		return [...this.staticWalls, ...dynamicWalls];
+	}
+
 	private startDeadKnockback(
 		sessionId: string,
 		player: Player,
@@ -1471,6 +1672,16 @@ export class GameRoom extends Room {
 			return {
 				x: placement.x + trap.outwardX * 0.42,
 				z: placement.z + trap.outwardZ * 0.42,
+			};
+		}
+		if (trap.targetKind === "escape_ladder") {
+			const placement = this.escapeLadderControllers.get(trap.targetId)?.placementSnapshot;
+			if (!placement) {
+				return null;
+			}
+			return {
+				x: placement.x + trap.outwardX * 0.28,
+				z: placement.z + trap.outwardZ * 0.28,
 			};
 		}
 		if (trap.targetKind === "suitcase") {

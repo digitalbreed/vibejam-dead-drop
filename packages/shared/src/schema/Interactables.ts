@@ -97,6 +97,15 @@ export class FileCabinetState extends Schema {
 	@type("number") searchedMask: number = 0;
 }
 
+/**
+ * Escape ladder state. Geometry + world position are derived from seed placement; the synced state
+ * exists so traps can target the ladder by id.
+ */
+export class EscapeLadderState extends Schema {
+	@type("string") id: string = "";
+	@type("string") kind: string = "";
+}
+
 export class TrapState extends Schema {
 	@type("string") id: string = "";
 	@type("string") ownerSessionId: string = "";

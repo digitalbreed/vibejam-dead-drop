@@ -18,6 +18,8 @@ export const DEFAULT_BOT_RUNTIME_CONFIG: BotRuntimeConfig = {
 	ambientPauseMinSpacingMs: 1400,
 	ambientPauseMinMs: 320,
 	ambientPauseMaxMs: 1100,
+	carrierSpeedFactor: 0.5,
+	carrierHumanizationScale: 0.35,
 	actionDelayMinMs: 180,
 	actionDelayMaxMs: 520,
 	detourChancePerDecision: 0.06,

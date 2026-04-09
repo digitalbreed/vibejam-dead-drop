@@ -1,6 +1,6 @@
 import { useEffect, useLayoutEffect, useMemo, useRef, type MutableRefObject } from "react";
 import { useFrame } from "@react-three/fiber";
-import { Color, DoubleSide, Group, Vector3 } from "three";
+import { CanvasTexture, Color, DoubleSide, Group, NearestFilter, SRGBColorSpace, Vector3 } from "three";
 import { OutlinedMesh } from "../toonOutline/OutlinedMesh";
 
 const MOVE_SPEED = 12;
@@ -25,6 +25,8 @@ export function PlayerVisual({
 	interactionStyle,
 	isAlive = true,
 	outlined = true,
+	nameLabel,
+	showNameLabel = false,
 }: {
 	color: number;
 	isLocal: boolean;
@@ -38,6 +40,8 @@ export function PlayerVisual({
 	interactionStyle?: string;
 	isAlive?: boolean;
 	outlined?: boolean;
+	nameLabel?: string;
+	showNameLabel?: boolean;
 }) {
 	const groupRef = useRef<Group>(null);
 	const visualRef = useRef<Group>(null);
@@ -54,6 +58,56 @@ export function PlayerVisual({
 	const deadSpinVelRef = useRef({ x: 0, y: 0, z: 0 });
 	const deathSpinSeedRef = useRef(Math.random() * Math.PI * 2);
 	const wasAliveRef = useRef(isAlive);
+	const nameLabelData = useMemo(() => {
+		if (!showNameLabel) {
+			return null;
+		}
+		const text = (nameLabel ?? "").trim();
+		if (!text) {
+			return null;
+		}
+		const fontSize = 34;
+		const horizontalPad = 16;
+		const verticalPad = 8;
+		const canvas = document.createElement("canvas");
+		const ctx = canvas.getContext("2d");
+		if (!ctx) {
+			return null;
+		}
+		ctx.font = `700 ${fontSize}px 'Bebas Neue', Impact, Haettenschweiler, 'Arial Narrow Bold', sans-serif`;
+		const textWidth = Math.ceil(ctx.measureText(text).width);
+		canvas.width = Math.max(128, textWidth + horizontalPad * 2);
+		canvas.height = fontSize + verticalPad * 2;
+
+		const paint = canvas.getContext("2d");
+		if (!paint) {
+			return null;
+		}
+		paint.clearRect(0, 0, canvas.width, canvas.height);
+		paint.font = `700 ${fontSize}px 'Bebas Neue', Impact, Haettenschweiler, 'Arial Narrow Bold', sans-serif`;
+		paint.textAlign = "center";
+		paint.textBaseline = "middle";
+		const drawX = canvas.width / 2;
+		const drawY = canvas.height / 2 + 1;
+		paint.fillStyle = "rgba(0, 0, 0, 0.95)";
+		paint.fillText(text.toUpperCase(), drawX + 4, drawY + 4);
+		paint.fillStyle = "#ffffff";
+		paint.fillText(text.toUpperCase(), drawX, drawY);
+
+		const texture = new CanvasTexture(canvas);
+		texture.colorSpace = SRGBColorSpace;
+		texture.minFilter = NearestFilter;
+		texture.magFilter = NearestFilter;
+		texture.generateMipmaps = false;
+		texture.needsUpdate = true;
+		return { texture, width: canvas.width, height: canvas.height };
+	}, [nameLabel, showNameLabel]);
+
+	useEffect(() => {
+		return () => {
+			nameLabelData?.texture.dispose();
+		};
+	}, [nameLabelData]);
 
 	useLayoutEffect(() => {
 		const group = groupRef.current;
@@ -333,6 +387,24 @@ export function PlayerVisual({
 						/>
 					</mesh>
 				</group>
+			) : null}
+			{showNameLabel && nameLabelData ? (
+				<sprite
+					position={[0, 2.55, 0]}
+					scale={[
+						(nameLabelData.width / nameLabelData.height) * 0.52,
+						0.52,
+						1,
+					]}
+					renderOrder={8}
+				>
+					<spriteMaterial
+						map={nameLabelData.texture}
+						transparent
+						depthWrite={false}
+						depthTest={false}
+					/>
+				</sprite>
 			) : null}
 		</group>
 	);

@@ -1,4 +1,10 @@
-import { CELL_SIZE, generateMapLayout, layoutRoomMap, type MapLayout } from "../map/index.js";
+import {
+	CELL_SIZE,
+	generateEscapeLadderPlacement,
+	generateMapLayout,
+	layoutRoomMap,
+	type MapLayout,
+} from "../map/index.js";
 import type { BotDoorPerception, BotMapAwareness, BotPerceptionSnapshot } from "./types.js";
 
 const DOOR_ID_RE = /^door_(-?\d+)_(-?\d+)_(-?\d+)_(-?\d+)$/;
@@ -166,6 +172,7 @@ export function buildMapAwareness(seed: number, maxDistance: number, doors: BotD
 	const layout = generateMapLayout(seed, maxDistance);
 	const { roomByCell, chamberRoomIds } = buildRoomByCell(layout);
 	const roomCenters = buildRoomCenters(layout, roomByCell);
+	const escapeLadderPlacement = generateEscapeLadderPlacement(layout);
 	const { doorways, doorwaysByRoom, leafChamberRoomIds } = buildDoorways(doors, roomByCell);
 	const awareness: BotMapAwareness = {
 		seed,
@@ -173,6 +180,15 @@ export function buildMapAwareness(seed: number, maxDistance: number, doors: BotD
 		roomByCell,
 		roomCenters,
 		chamberRoomIds,
+		escapeLadder: escapeLadderPlacement
+			? {
+					id: escapeLadderPlacement.id,
+					x: escapeLadderPlacement.x,
+					z: escapeLadderPlacement.z,
+					roomId: escapeLadderPlacement.roomId,
+					range: escapeLadderPlacement.range,
+			  }
+			: null,
 		doorways,
 		doorwaysByRoom,
 		leafChamberRoomIds,
@@ -209,6 +225,7 @@ export function computeRoomIds(snapshot: Omit<BotPerceptionSnapshot, "map">, map
 	const keycards = snapshot.keycards.map((card) => ({ ...card, roomId: toRoom(card.x, card.z) }));
 	const vaults = snapshot.vaults.map((vault) => ({ ...vault, roomId: toRoom(vault.x, vault.z) }));
 	const suitcases = snapshot.suitcases.map((suitcase) => ({ ...suitcase, roomId: toRoom(suitcase.x, suitcase.z) }));
+	const escapeLadders = snapshot.escapeLadders.map((ladder) => ({ ...ladder, roomId: toRoom(ladder.x, ladder.z) }));
 	const doors = hydrateDoorRooms(snapshot.doors, map.roomByCell);
 	const fileCabinets = snapshot.fileCabinets;
 	return {
@@ -219,6 +236,7 @@ export function computeRoomIds(snapshot: Omit<BotPerceptionSnapshot, "map">, map
 		keycards,
 		vaults,
 		suitcases,
+		escapeLadders,
 		fileCabinets,
 		map,
 	};

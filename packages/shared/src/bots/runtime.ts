@@ -127,9 +127,12 @@ export function createBotRuntime(partialConfig: Partial<BotRuntimeConfig> = {}):
 		}
 
 		const command = decisionToCommand(decision, logs, config);
-		const delayedCommand = applyActionDelayHandicap(memory, snapshot, command, config, logs);
-		const detouredCommand = applyDetourHandicap(memory, snapshot, delayedCommand, config, logs);
-		if (shouldTriggerAmbientPause(memory, snapshot, command, config)) {
+		const carrierSessionId = snapshot.suitcases.find((suitcase) => suitcase.state === "carried")?.carrierSessionId ?? "";
+		const selfIsCarrier = carrierSessionId.length > 0 && carrierSessionId === snapshot.selfSessionId;
+		const humanizationScale = selfIsCarrier ? config.carrierHumanizationScale : 1;
+		const delayedCommand = applyActionDelayHandicap(memory, snapshot, command, config, logs, humanizationScale);
+		const detouredCommand = applyDetourHandicap(memory, snapshot, delayedCommand, config, logs, humanizationScale);
+		if (shouldTriggerAmbientPause(memory, snapshot, command, config, humanizationScale)) {
 			stateTransitionPause(memory, snapshot.timeMs, config.ambientPauseMinMs, config.ambientPauseMaxMs);
 			memory.lastAmbientPauseAtMs = snapshot.timeMs;
 			logs.push({
@@ -139,22 +142,23 @@ export function createBotRuntime(partialConfig: Partial<BotRuntimeConfig> = {}):
 			});
 			return defaultCommand(logs);
 		}
-		updateStuckState(memory, snapshot, detouredCommand, logs);
-		if (detouredCommand.moveVector) {
+		const speedAdjustedCommand = applyCarrierSpeedPenalty(detouredCommand, selfIsCarrier, config);
+		updateStuckState(memory, snapshot, speedAdjustedCommand, logs);
+		if (speedAdjustedCommand.moveVector) {
 			logs.push({
 				level: "debug",
-				message: `move_vector x=${detouredCommand.moveVector.x.toFixed(2)} z=${detouredCommand.moveVector.z.toFixed(2)}`,
+				message: `move_vector x=${speedAdjustedCommand.moveVector.x.toFixed(2)} z=${speedAdjustedCommand.moveVector.z.toFixed(2)}`,
 				timeMs: snapshot.timeMs,
 			});
 		}
-		if (detouredCommand.interactPress || detouredCommand.interactHold || detouredCommand.trapHold) {
+		if (speedAdjustedCommand.interactPress || speedAdjustedCommand.interactHold || speedAdjustedCommand.trapHold) {
 			logs.push({
 				level: "debug",
-				message: `action interactPress=${String(detouredCommand.interactPress)} interactHold=${String(detouredCommand.interactHold)} trapHold=${String(detouredCommand.trapHold)}`,
+				message: `action interactPress=${String(speedAdjustedCommand.interactPress)} interactHold=${String(speedAdjustedCommand.interactHold)} trapHold=${String(speedAdjustedCommand.trapHold)}`,
 				timeMs: snapshot.timeMs,
 			});
 		}
-		return detouredCommand;
+		return speedAdjustedCommand;
 	};
 
 	return {
@@ -173,7 +177,11 @@ function shouldTriggerAmbientPause(
 	snapshot: BotPerceptionSnapshot,
 	command: BotCommand,
 	config: BotRuntimeConfig,
+	humanizationScale: number,
 ): boolean {
+	if (humanizationScale <= 0) {
+		return false;
+	}
 	if (!command.moveVector) {
 		return false;
 	}
@@ -183,12 +191,12 @@ function shouldTriggerAmbientPause(
 	if (snapshot.timeMs - memory.lastAmbientPauseAtMs < config.ambientPauseMinSpacingMs) {
 		return false;
 	}
-	let chance = config.ambientPauseChancePerDecision;
+	let chance = config.ambientPauseChancePerDecision * humanizationScale;
 	if (
 		memory.roundStartActiveAtMs > 0 &&
 		snapshot.timeMs - memory.roundStartActiveAtMs <= config.earlyRoundPauseWindowMs
 	) {
-		chance += config.earlyRoundExtraPauseChancePerDecision;
+		chance += config.earlyRoundExtraPauseChancePerDecision * humanizationScale;
 	}
 	return Math.random() < chance;
 }
@@ -262,7 +270,11 @@ function applyActionDelayHandicap(
 	command: BotCommand,
 	config: BotRuntimeConfig,
 	logs: BotLogEntry[],
+	humanizationScale: number,
 ): BotCommand {
+	if (humanizationScale <= 0) {
+		return command;
+	}
 	const actionSig = `${command.interactPress ? 1 : 0}${command.interactHold ? 1 : 0}${command.trapHold ? 1 : 0}`;
 	const wantsAction = command.interactPress || command.interactHold || command.trapHold;
 	if (!wantsAction) {
@@ -273,7 +285,9 @@ function applyActionDelayHandicap(
 		return command;
 	}
 	if (memory.lastRequestedActionSig !== actionSig && memory.actionDelayUntilMs <= 0) {
-		memory.actionDelayUntilMs = snapshot.timeMs + randomBetween(config.actionDelayMinMs, config.actionDelayMaxMs);
+		memory.actionDelayUntilMs =
+			snapshot.timeMs +
+			randomBetween(config.actionDelayMinMs * humanizationScale, config.actionDelayMaxMs * humanizationScale);
 		memory.lastRequestedActionSig = actionSig;
 		logs.push({
 			level: "debug",
@@ -296,7 +310,11 @@ function applyDetourHandicap(
 	command: BotCommand,
 	config: BotRuntimeConfig,
 	logs: BotLogEntry[],
+	humanizationScale: number,
 ): BotCommand {
+	if (humanizationScale <= 0) {
+		return command;
+	}
 	if (!command.moveVector || command.interactPress || command.interactHold || command.trapHold) {
 		if (snapshot.timeMs >= memory.detourUntilMs) {
 			memory.detourUntilMs = 0;
@@ -310,12 +328,12 @@ function applyDetourHandicap(
 	if (snapshot.timeMs - memory.lastDetourAtMs < config.detourMinSpacingMs) {
 		return command;
 	}
-	let chance = config.detourChancePerDecision;
+	let chance = config.detourChancePerDecision * humanizationScale;
 	if (
 		memory.roundStartActiveAtMs > 0 &&
 		snapshot.timeMs - memory.roundStartActiveAtMs <= config.earlyRoundPauseWindowMs
 	) {
-		chance += 0.05;
+		chance += 0.05 * humanizationScale;
 	}
 	if (Math.random() >= chance) {
 		return command;
@@ -340,6 +358,20 @@ function applyDetourHandicap(
 		timeMs: snapshot.timeMs,
 	});
 	return { ...command, moveVector: memory.detourVector };
+}
+
+function applyCarrierSpeedPenalty(command: BotCommand, selfIsCarrier: boolean, config: BotRuntimeConfig): BotCommand {
+	if (!selfIsCarrier || !command.moveVector) {
+		return command;
+	}
+	const factor = Math.max(0.05, Math.min(1, config.carrierSpeedFactor));
+	return {
+		...command,
+		moveVector: {
+			x: command.moveVector.x * factor,
+			z: command.moveVector.z * factor,
+		},
+	};
 }
 
 function stripActions(command: BotCommand): BotCommand {

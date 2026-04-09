@@ -1,6 +1,7 @@
 import { Schema, MapSchema, type } from "@colyseus/schema";
 import {
 	DoorState,
+	EscapeLadderState,
 	FileCabinetState,
 	KeycardState,
 	SuitcaseState,
@@ -37,6 +38,7 @@ export class GameState extends Schema {
 	@type({ map: SuitcaseState }) suitcases = new MapSchema<SuitcaseState>();
 	@type({ map: VaultState }) vaults = new MapSchema<VaultState>();
 	@type({ map: FileCabinetState }) fileCabinets = new MapSchema<FileCabinetState>();
+	@type({ map: EscapeLadderState }) escapeLadders = new MapSchema<EscapeLadderState>();
 	@type({ map: TrapState }) traps = new MapSchema<TrapState>();
 	@type({ map: TrapPointState }) trapPoints = new MapSchema<TrapPointState>();
 }

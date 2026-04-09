@@ -2,6 +2,7 @@ import { useMemo, useRef } from "react";
 import { useFrame } from "@react-three/fiber";
 import {
 	CELL_SIZE,
+	generateEscapeLadderPlacement,
 	generateFileCabinetPlacements,
 	generateMapLayout,
 	type DoorState,
@@ -178,6 +179,11 @@ export function TrapLayer({
 		const layout = generateMapLayout(mapSeed, mapMaxDistance);
 		return new Map(generateFileCabinetPlacements(layout).map((placement) => [placement.id, placement]));
 	}, [mapMaxDistance, mapSeed]);
+	const ladderById = useMemo(() => {
+		const layout = generateMapLayout(mapSeed, mapMaxDistance);
+		const placement = generateEscapeLadderPlacement(layout);
+		return new Map(placement ? [[placement.id, placement] as const] : []);
+	}, [mapMaxDistance, mapSeed]);
 
 	return (
 		<group>
@@ -219,6 +225,14 @@ export function TrapLayer({
 					x = cabinet.x + trap.outwardX * 0.42;
 					y = Math.max(0.62, cabinet.height * 0.5 + 0.08);
 					z = cabinet.z + trap.outwardZ * 0.42;
+				} else if (trap.targetKind === "escape_ladder") {
+					const ladder = ladderById.get(trap.targetId);
+					if (!ladder) {
+						return null;
+					}
+					x = ladder.x + trap.outwardX * 0.28;
+					y = 1.65;
+					z = ladder.z + trap.outwardZ * 0.28;
 				} else if (trap.targetKind === "suitcase") {
 					const suitcase = suitcaseById.get(trap.targetId);
 					if (!suitcase || suitcase.state !== "ground") {

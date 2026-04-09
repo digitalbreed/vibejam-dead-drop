@@ -2,6 +2,7 @@ import type {
 	BotDecision,
 	BotDecisionContext,
 	BotDoorPerception,
+	BotEscapeLadderPerception,
 	BotKeycardPerception,
 	BotPlayerPerception,
 	BotSuitcasePerception,
@@ -61,6 +62,23 @@ export function playerCarriedSuitcase(context: BotDecisionContext): BotSuitcaseP
 
 export function primaryVault(context: BotDecisionContext): BotVaultPerception | null {
 	return context.snapshot.vaults[0] ?? null;
+}
+
+export function primaryEscapeLadder(context: BotDecisionContext): BotEscapeLadderPerception | null {
+	if (context.snapshot.escapeLadders.length > 0) {
+		return context.snapshot.escapeLadders[0]!;
+	}
+	const fallback = context.snapshot.map.escapeLadder;
+	if (!fallback) {
+		return null;
+	}
+	return {
+		id: fallback.id,
+		x: fallback.x,
+		z: fallback.z,
+		range: fallback.range,
+		roomId: fallback.roomId,
+	};
 }
 
 export function nearestGroundKeycard(
