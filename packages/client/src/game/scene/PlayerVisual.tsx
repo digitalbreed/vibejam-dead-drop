@@ -23,6 +23,7 @@ export function PlayerVisual({
 	isInteracting,
 	interactionProgress,
 	interactionStyle,
+	showInteractionIndicator = true,
 	isAlive = true,
 	outlined = true,
 	nameLabel,
@@ -38,6 +39,7 @@ export function PlayerVisual({
 	isInteracting?: boolean;
 	interactionProgress?: number;
 	interactionStyle?: string;
+	showInteractionIndicator?: boolean;
 	isAlive?: boolean;
 	outlined?: boolean;
 	nameLabel?: string;
@@ -361,7 +363,7 @@ export function PlayerVisual({
 					</group>
 				) : null}
 			</group>
-			{isInteracting ? (
+			{isInteracting && showInteractionIndicator ? (
 				<group position={[0, 2.45, 0]}>
 					<mesh position={[0, 0, 0]} renderOrder={1}>
 						<circleGeometry args={[0.38, 40]} />

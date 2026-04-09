@@ -5,6 +5,7 @@ type PlayerLobbyView = {
 	sessionId: string;
 	name: string;
 	isBot: boolean;
+	color: number;
 };
 
 function schemaMapEntries<T>(value: unknown): Array<[string, T]> {
@@ -27,6 +28,11 @@ function formatSeconds(seconds: number): string {
 	const mm = String(Math.floor(clamped / 60)).padStart(2, "0");
 	const ss = String(clamped % 60).padStart(2, "0");
 	return `${mm}:${ss}`;
+}
+
+function colorIntToHex(color: number): string {
+	const safe = Number.isFinite(color) ? Math.max(0, Math.min(0xffffff, Math.floor(color))) : 0xffffff;
+	return `#${safe.toString(16).padStart(6, "0")}`;
 }
 
 export function LobbyScreen() {
@@ -55,6 +61,7 @@ export function LobbyScreen() {
 							? player.name.trim()
 							: "Agent",
 					isBot: !!player?.isBot,
+					color: typeof player?.color === "number" ? player.color : 0xffffff,
 				}))
 				.sort((a, b) => {
 					if (a.isBot !== b.isBot) {
@@ -154,13 +161,33 @@ export function LobbyScreen() {
 									justifyContent: "space-between",
 									padding: "0.22rem 0.1rem",
 									gap: "0.75rem",
-									borderBottom: "1px solid rgba(54, 77, 101, 0.45)",
 								}}
 							>
-								<span style={{ overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+								<span
+									style={{
+										display: "inline-flex",
+										alignItems: "center",
+										gap: "0.5rem",
+										overflow: "hidden",
+										textOverflow: "ellipsis",
+										whiteSpace: "nowrap",
+									}}
+								>
+									<span
+										aria-hidden
+										style={{
+											width: 10,
+											height: 10,
+											borderRadius: "50%",
+											background: colorIntToHex(player.color),
+											border: "1px solid rgba(220, 230, 240, 0.55)",
+											boxShadow: "0 0 0 1px rgba(6, 10, 16, 0.65)",
+											flexShrink: 0,
+										}}
+									/>
 									{player.name}
 								</span>
-								{player.isBot ? <span title="Server bot">🤖</span> : <span style={{ opacity: 0.55 }}>human</span>}
+								{player.isBot ? <span title="Server bot">🤖</span> : <span />}
 							</div>
 						))
 					)}

@@ -17,6 +17,7 @@ type ShredParticle = {
 const PAPER_CYCLE_MS = 2700;
 const PAPER_FEED_START_RATIO = 0.64;
 const PAPER_FEED_END_RATIO = 0.92;
+const OPERATOR_NAME_STORAGE_KEY = "vibejam.operatorName";
 
 export function TitleScreen({ onJoin }: TitleScreenProps) {
 	const [shreds, setShreds] = useState<ShredParticle[]>([]);
@@ -51,6 +52,28 @@ export function TitleScreen({ onJoin }: TitleScreenProps) {
 			window.clearInterval(emitter);
 		};
 	}, []);
+
+	useEffect(() => {
+		if (typeof window === "undefined") {
+			return;
+		}
+		const saved = window.localStorage.getItem(OPERATOR_NAME_STORAGE_KEY);
+		if (typeof saved === "string" && saved.trim().length > 0) {
+			setOperatorName(saved.trim());
+		}
+	}, []);
+
+	useEffect(() => {
+		if (typeof window === "undefined") {
+			return;
+		}
+		const trimmed = operatorName.trim();
+		if (trimmed.length > 0) {
+			window.localStorage.setItem(OPERATOR_NAME_STORAGE_KEY, trimmed);
+			return;
+		}
+		window.localStorage.removeItem(OPERATOR_NAME_STORAGE_KEY);
+	}, [operatorName]);
 
 	const removeShred = (id: number) => {
 		setShreds((current) => current.filter((shred) => shred.id !== id));
@@ -246,10 +269,20 @@ export function TitleScreen({ onJoin }: TitleScreenProps) {
 				<button
 					type="button"
 					onClick={() =>
-						onJoin({
-							operatorName: operatorName.trim(),
-							gameCode: gameCode.trim(),
-						})
+						{
+							const trimmedOperatorName = operatorName.trim();
+							if (typeof window !== "undefined") {
+								if (trimmedOperatorName.length > 0) {
+									window.localStorage.setItem(OPERATOR_NAME_STORAGE_KEY, trimmedOperatorName);
+								} else {
+									window.localStorage.removeItem(OPERATOR_NAME_STORAGE_KEY);
+								}
+							}
+							onJoin({
+								operatorName: trimmedOperatorName,
+								gameCode: gameCode.trim(),
+							});
+						}
 					}
 					style={{
 						marginTop: "0.5rem",

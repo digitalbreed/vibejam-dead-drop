@@ -889,9 +889,10 @@ function SceneContent({
 						showNameLabel
 						carriedKeycardColor={p.carriedKeycardColor}
 						carriedSuitcase={p.carriedSuitcase}
-						isInteracting={false}
-						interactionProgress={0}
-						interactionStyle="normal"
+						isInteracting={p.isInteracting}
+						interactionProgress={p.interactionProgress}
+						interactionStyle={p.interactionStyle}
+						showInteractionIndicator={false}
 						isAlive={p.isAlive}
 						outlined={outlinesEnabled}
 					/>
