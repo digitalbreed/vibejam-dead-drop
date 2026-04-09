@@ -6,7 +6,9 @@ import {
 } from "@colyseus/react";
 import type { GameState, GameTeam } from "@vibejam/shared";
 
-const url = import.meta.env.VITE_COLYSEUS_URL ?? "http://localhost:2567";
+const defaultUrl =
+	typeof window !== "undefined" ? window.location.origin : "http://localhost:2567";
+const url = import.meta.env.VITE_COLYSEUS_URL ?? defaultUrl;
 export const colyseusClient = new Client(url);
 
 export type RoleAssignmentMessage = {
