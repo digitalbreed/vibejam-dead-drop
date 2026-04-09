@@ -44,7 +44,56 @@ const INTERACTION_DURATION_MS = 5000;
 const DOOR_TRAP_OWNER_GRACE_MS = 1000;
 const TRAP_POINT_COUNT = 3;
 const DOOR_TRAP_CROSSING_MARGIN = 0.24;
+const PLAYER_VISUAL_HEIGHT = 1.6;
+const DEAD_KNOCKBACK_MAX_DISTANCE = PLAYER_VISUAL_HEIGHT * 3;
+const DEAD_KNOCKBACK_MIN_DISTANCE = DEAD_KNOCKBACK_MAX_DISTANCE * 0.72;
+const DEAD_KNOCKBACK_SPEED = 11.5;
+const TRAP_EXPLOSION_AUDIO_RANGE = Number(process.env.TRAP_EXPLOSION_AUDIO_RANGE ?? 26);
 const MAX_OPERATOR_NAME_LENGTH = 24;
+const AGENT_PREFIXES = [
+	"Ghost",
+	"Phantom",
+	"Cipher",
+	"Vector",
+	"Echo",
+	"Nova",
+	"Rogue",
+	"Stealth",
+	"Apex",
+	"Neon",
+	"Onyx",
+	"Chrome",
+	"Obsidian",
+	"Frost",
+	"Viper",
+	"Raven",
+	"Zero",
+	"Switch",
+	"Pulse",
+	"Havoc",
+];
+const AGENT_NOUNS = [
+	"Agent",
+	"Operative",
+	"Runner",
+	"Warden",
+	"Drifter",
+	"Specter",
+	"Hunter",
+	"Cipher",
+	"Sentinel",
+	"Nomad",
+	"Shadow",
+	"Tracker",
+	"Broker",
+	"Striker",
+	"Scout",
+	"Phantom",
+	"Probe",
+	"Signal",
+	"Mirage",
+	"Oracle",
+];
 
 const PALETTE = [
 	0xe74c3c, 0x3498db, 0x2ecc71, 0xf1c40f, 0x9b59b6, 0x1abc9c, 0xe67e22, 0x34495e,
@@ -96,6 +145,12 @@ type TrapPlacementCandidate = {
 };
 
 type XY = { x: number; z: number };
+type DeadKnockbackState = {
+	dirX: number;
+	dirZ: number;
+	remainingDistance: number;
+	speed: number;
+};
 
 type JoinOptions = {
 	mapMaxDistance?: number;
@@ -103,17 +158,43 @@ type JoinOptions = {
 	gameCode?: string;
 };
 
-function defaultOperatorName(sessionId: string): string {
-	return `Agent ${sessionId.slice(-4).toUpperCase()}`;
+function randomItem<T>(list: readonly T[]): T {
+	return list[Math.floor(Math.random() * list.length)]!;
 }
 
-function resolveOperatorName(raw: unknown, sessionId: string): string {
+function buildAgentCodename(existingNames: ReadonlySet<string>): string {
+	// Generate from two vocab pools + numeric suffix for strong variety across games.
+	for (let attempt = 0; attempt < 24; attempt++) {
+		const prefix = randomItem(AGENT_PREFIXES);
+		const noun = randomItem(AGENT_NOUNS);
+		const tag = String(Math.floor(Math.random() * 1000)).padStart(3, "0");
+		const candidate = `${prefix} ${noun}-${tag}`.slice(0, MAX_OPERATOR_NAME_LENGTH);
+		if (!existingNames.has(candidate)) {
+			return candidate;
+		}
+	}
+	const fallback = `Agent ${String(Math.floor(Math.random() * 10000)).padStart(4, "0")}`;
+	if (!existingNames.has(fallback)) {
+		return fallback;
+	}
+	let counter = 1;
+	while (counter < 1000) {
+		const next = `Agent-${String(counter).padStart(3, "0")}`;
+		if (!existingNames.has(next)) {
+			return next;
+		}
+		counter += 1;
+	}
+	return "Agent";
+}
+
+function resolveOperatorName(raw: unknown, existingNames: ReadonlySet<string>): string {
 	if (typeof raw !== "string") {
-		return defaultOperatorName(sessionId);
+		return buildAgentCodename(existingNames);
 	}
 	const compact = raw.replace(/\s+/g, " ").trim();
 	if (!compact) {
-		return defaultOperatorName(sessionId);
+		return buildAgentCodename(existingNames);
 	}
 	return compact.slice(0, MAX_OPERATOR_NAME_LENGTH);
 }
@@ -131,6 +212,7 @@ export class GameRoom extends Room {
 	private interactionHold = new Map<string, boolean>();
 	private trapHold = new Map<string, boolean>();
 	private pendingTrapPlacement = new Map<string, TrapPlacementCandidate>();
+	private deadKnockback = new Map<string, DeadKnockbackState>();
 	private keycardsPickedUpColors = new Set<string>();
 	maxClients = 16;
 
@@ -179,7 +261,11 @@ export class GameRoom extends Room {
 		const spawn = spawnInCenterHub(this.state.mapSeed, client.sessionId);
 		player.x = spawn.x;
 		player.z = spawn.z;
-		player.name = resolveOperatorName(options.operatorName, client.sessionId);
+		const existingNames = new Set<string>();
+		for (const existing of this.state.players.values()) {
+			existingNames.add(existing.name);
+		}
+		player.name = resolveOperatorName(options.operatorName, existingNames);
 		const existingColors = new Set<number>();
 		for (const existing of this.state.players.values()) {
 			existingColors.add(existing.color);
@@ -208,6 +294,7 @@ export class GameRoom extends Room {
 		this.interactionHold.delete(client.sessionId);
 		this.trapHold.delete(client.sessionId);
 		this.pendingTrapPlacement.delete(client.sessionId);
+		this.deadKnockback.delete(client.sessionId);
 		this.removeOwnedTraps(client.sessionId);
 		this.removeTrapPoints(client.sessionId);
 	}
@@ -217,6 +304,7 @@ export class GameRoom extends Room {
 		this.interactionHold.clear();
 		this.trapHold.clear();
 		this.pendingTrapPlacement.clear();
+		this.deadKnockback.clear();
 		this.doorControllers = [];
 		this.keycardControllers.clear();
 		this.suitcaseControllers.clear();
@@ -302,6 +390,7 @@ export class GameRoom extends Room {
 			player.x = next.x;
 			player.z = next.z;
 		});
+		this.tickDeadKnockback(dt, walls);
 		this.checkDoorTrapCrossings(previousPositionBySessionId);
 		this.tickInteractions(deltaMs);
 	}
@@ -1092,8 +1181,11 @@ export class GameRoom extends Room {
 		return null;
 	}
 
-	private triggerTrap(trap: TrapState, triggeringSessionId: string) {
+	private triggerTrap(trap: TrapState, triggeringSessionId: string, blastDirection?: XY) {
 		if (trap.status !== "active") {
+			return;
+		}
+		if (!this.state.traps.has(trap.id)) {
 			return;
 		}
 		trap.status = "triggered";
@@ -1102,10 +1194,22 @@ export class GameRoom extends Room {
 			ownerPoint.status = "used";
 			ownerPoint.trapId = trap.id;
 		}
-		this.killPlayer(triggeringSessionId);
+		const triggeringPlayer = this.state.players.get(triggeringSessionId);
+		const explosionOrigin =
+			this.resolveTrapOrigin(trap) ??
+			(triggeringPlayer ? { x: triggeringPlayer.x, z: triggeringPlayer.z } : null);
+		if (explosionOrigin) {
+			this.broadcast("explosion_event", {
+				x: explosionOrigin.x,
+				z: explosionOrigin.z,
+				range: TRAP_EXPLOSION_AUDIO_RANGE,
+			});
+		}
+		this.state.traps.delete(trap.id);
+		this.killPlayer(triggeringSessionId, trap, blastDirection);
 	}
 
-	private killPlayer(sessionId: string) {
+	private killPlayer(sessionId: string, triggerTrap?: TrapState, blastDirection?: XY) {
 		const player = this.state.players.get(sessionId);
 		if (!player || !player.isAlive) {
 			return;
@@ -1118,6 +1222,7 @@ export class GameRoom extends Room {
 		this.trapHold.delete(sessionId);
 		this.pendingTrapPlacement.delete(sessionId);
 		this.input.set(sessionId, { x: 0, z: 0 });
+		this.startDeadKnockback(sessionId, player, triggerTrap, blastDirection);
 
 		const carried = this.findCarriedKeycard(sessionId);
 		if (carried) {
@@ -1136,9 +1241,43 @@ export class GameRoom extends Room {
 
 		const payload: Extract<GameServerMessages["ticker_event"], { event: "agent_died" }> = {
 			event: "agent_died",
-			agentCode: sessionId.slice(-4).toUpperCase(),
+			agentName: player.name,
 		};
 		this.broadcast("ticker_event", payload);
+	}
+
+	private tickDeadKnockback(dt: number, walls: WallRect[]) {
+		for (const [sessionId, knockback] of this.deadKnockback.entries()) {
+			const player = this.state.players.get(sessionId);
+			if (!player || player.isAlive) {
+				this.deadKnockback.delete(sessionId);
+				continue;
+			}
+			if (knockback.remainingDistance <= 0) {
+				this.deadKnockback.delete(sessionId);
+				continue;
+			}
+			const desiredStep = Math.min(knockback.remainingDistance, knockback.speed * dt);
+			if (desiredStep <= 0.0001) {
+				this.deadKnockback.delete(sessionId);
+				continue;
+			}
+			const next = moveWithCollision(
+				player.x,
+				player.z,
+				knockback.dirX * desiredStep,
+				knockback.dirZ * desiredStep,
+				walls,
+			);
+			const moved = Math.hypot(next.x - player.x, next.z - player.z);
+			player.x = next.x;
+			player.z = next.z;
+			knockback.remainingDistance = Math.max(0, knockback.remainingDistance - moved);
+			// If blocked almost immediately, stop the knockback to avoid jittering against collision.
+			if (moved < desiredStep * 0.15 || knockback.remainingDistance <= 0.01) {
+				this.deadKnockback.delete(sessionId);
+			}
+		}
 	}
 
 	private checkDoorTrapCrossings(previousPositionBySessionId: ReadonlyMap<string, XY>) {
@@ -1165,10 +1304,27 @@ export class GameRoom extends Room {
 				if (!this.didCrossDoorPlane(door, prev, { x: player.x, z: player.z })) {
 					continue;
 				}
-				this.triggerTrap(trap, sessionId);
+				const nextPosition = { x: player.x, z: player.z };
+				const blastDirection = this.computeDoorBlastDirection(door, prev, nextPosition);
+				this.triggerTrap(trap, sessionId, blastDirection);
 				break;
 			}
 		}
+	}
+
+	private computeDoorBlastDirection(door: DoorState, prev: XY, next: XY): XY {
+		if (door.facing === "z") {
+			const dz = next.z - prev.z;
+			if (Math.abs(dz) > 0.0001) {
+				return { x: 0, z: dz > 0 ? -1 : 1 };
+			}
+			return { x: 0, z: prev.z >= door.z ? 1 : -1 };
+		}
+		const dx = next.x - prev.x;
+		if (Math.abs(dx) > 0.0001) {
+			return { x: dx > 0 ? -1 : 1, z: 0 };
+		}
+		return { x: prev.x >= door.x ? 1 : -1, z: 0 };
 	}
 
 	private didCrossDoorPlane(door: DoorState, prev: XY, next: XY): boolean {
@@ -1230,5 +1386,113 @@ export class GameRoom extends Room {
 			return { x: 0, z: 1 };
 		}
 		return { x: dx / len, z: dz / len };
+	}
+
+	private startDeadKnockback(
+		sessionId: string,
+		player: Player,
+		triggerTrap?: TrapState,
+		blastDirection?: XY,
+	) {
+		if (!triggerTrap) {
+			this.deadKnockback.delete(sessionId);
+			return;
+		}
+		let direction = this.computeTrapBlastDirection(triggerTrap, player);
+		if (blastDirection) {
+			const len = Math.hypot(blastDirection.x, blastDirection.z);
+			if (len > 0.001) {
+				direction = { x: blastDirection.x / len, z: blastDirection.z / len };
+			}
+		}
+		const travelDistance =
+			DEAD_KNOCKBACK_MIN_DISTANCE +
+			Math.random() * (DEAD_KNOCKBACK_MAX_DISTANCE - DEAD_KNOCKBACK_MIN_DISTANCE);
+		this.deadKnockback.set(sessionId, {
+			dirX: direction.x,
+			dirZ: direction.z,
+			remainingDistance: travelDistance,
+			speed: DEAD_KNOCKBACK_SPEED,
+		});
+	}
+
+	private computeTrapBlastDirection(trap: TrapState, player: Player): XY {
+		const origin = this.resolveTrapOrigin(trap);
+		if (origin) {
+			const dx = player.x - origin.x;
+			const dz = player.z - origin.z;
+			const len = Math.hypot(dx, dz);
+			if (len > 0.001) {
+				return { x: dx / len, z: dz / len };
+			}
+		}
+		const fallbackX = trap.outwardX;
+		const fallbackZ = trap.outwardZ;
+		const fallbackLen = Math.hypot(fallbackX, fallbackZ);
+		if (fallbackLen > 0.001) {
+			return { x: fallbackX / fallbackLen, z: fallbackZ / fallbackLen };
+		}
+		return { x: 0, z: 1 };
+	}
+
+	private resolveTrapOrigin(trap: TrapState): XY | null {
+		if (trap.targetKind === "door") {
+			const door = this.state.interactables.get(trap.targetId);
+			if (!door) {
+				return null;
+			}
+			const halfOpening = door.variant === "double" ? 1.1 : 0.56;
+			const sideOffset = 0.24;
+			const side = trap.doorSide >= 0 ? 1 : -1;
+			const oppositeHingeSide = door.hingeSide === "left" ? 1 : -1;
+			if (door.facing === "z") {
+				return {
+					x: door.x + oppositeHingeSide * halfOpening,
+					z: door.z + side * sideOffset,
+				};
+			}
+			return {
+				x: door.x + side * sideOffset,
+				z: door.z + oppositeHingeSide * halfOpening,
+			};
+		}
+		if (trap.targetKind === "vault") {
+			const vault = this.vaultControllers.get(trap.targetId)?.vault;
+			if (!vault) {
+				return null;
+			}
+			return { x: vault.x + 0.96, z: vault.z + CELL_SIZE / 2 + 0.2 };
+		}
+		if (trap.targetKind === "file_cabinet") {
+			const placement = this.fileCabinetControllers.get(trap.targetId)?.placementSnapshot;
+			if (!placement) {
+				return null;
+			}
+			return {
+				x: placement.x + trap.outwardX * 0.42,
+				z: placement.z + trap.outwardZ * 0.42,
+			};
+		}
+		if (trap.targetKind === "suitcase") {
+			const suitcase = this.suitcaseControllers.get(trap.targetId)?.suitcase;
+			if (!suitcase) {
+				return null;
+			}
+			return {
+				x: suitcase.worldX + trap.outwardX * 0.36,
+				z: suitcase.worldZ + trap.outwardZ * 0.36,
+			};
+		}
+		if (trap.targetKind === "keycard") {
+			const keycard = this.keycardControllers.get(trap.targetId)?.keycard;
+			if (!keycard) {
+				return null;
+			}
+			return {
+				x: keycard.worldX + trap.outwardX * 0.32,
+				z: keycard.worldZ + trap.outwardZ * 0.32,
+			};
+		}
+		return null;
 	}
 }

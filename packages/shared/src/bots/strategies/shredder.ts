@@ -4,6 +4,7 @@ import {
 	canInsertAtVault,
 	decideSweepMove,
 	inActionRange,
+	isVaultInteractionLeader,
 	isPickupLeaderForKeycard,
 	keycardYieldPoint,
 	moveToRoomAwareTarget,
@@ -13,6 +14,7 @@ import {
 	playerCarriedSuitcase,
 	primaryVault,
 	vaultApproachPoint,
+	vaultYieldPoint,
 } from "./common.js";
 
 export const ShredderStrategy: BotRoleStrategy = {
@@ -60,6 +62,13 @@ export const ShredderStrategy: BotRoleStrategy = {
 
 		if (vault.isUnlocked && !vault.isDoorOpen) {
 			if (canOpenVault(context, vault)) {
+				if (!isVaultInteractionLeader(context, vault)) {
+					return {
+						...moveToTarget(context, vaultYieldPoint(vault, self.sessionId), false),
+						stateKey: "shredder:yield_vault_open",
+						targetLabel: `vault:${vault.id}`,
+					};
+				}
 				return {
 					stateKey: "shredder:open_vault",
 					moveVector: null,

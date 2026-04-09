@@ -148,6 +148,15 @@ export type BotMemory = {
 	stuckTicks: number;
 	escapeUntilMs: number;
 	escapeVector: BotVector | null;
+	escapeMode: "vault_unwedge" | "room_center" | "random" | null;
+	escapeStartedAtMs: number;
+	roundStartActiveAtMs: number;
+	lastAmbientPauseAtMs: number;
+	lastDetourAtMs: number;
+	detourUntilMs: number;
+	detourVector: BotVector | null;
+	actionDelayUntilMs: number;
+	lastRequestedActionSig: string;
 };
 
 export type BotRuntimeConfig = {
@@ -165,6 +174,34 @@ export type BotRuntimeConfig = {
 	initialOrientationMinMs: number;
 	/** Maximum initial delay at round start to mimic player orientation. */
 	initialOrientationMaxMs: number;
+	/** Extra humanization window right after orientation pause where ambient pauses are more frequent. */
+	earlyRoundPauseWindowMs: number;
+	/** Base chance per decision tick to insert an ambient pause while moving. */
+	ambientPauseChancePerDecision: number;
+	/** Additional chance per decision tick during earlyRoundPauseWindowMs. */
+	earlyRoundExtraPauseChancePerDecision: number;
+	/** Minimum spacing between ambient pauses. */
+	ambientPauseMinSpacingMs: number;
+	/** Minimum duration of ambient pause. */
+	ambientPauseMinMs: number;
+	/** Maximum duration of ambient pause. */
+	ambientPauseMaxMs: number;
+	/** Minimum simulated reaction delay before action commands (interact/trap). */
+	actionDelayMinMs: number;
+	/** Maximum simulated reaction delay before action commands (interact/trap). */
+	actionDelayMaxMs: number;
+	/** Chance per decision tick to take a short detour while moving. */
+	detourChancePerDecision: number;
+	/** Minimum spacing between detours. */
+	detourMinSpacingMs: number;
+	/** Minimum detour duration. */
+	detourMinMs: number;
+	/** Maximum detour duration. */
+	detourMaxMs: number;
+	/** Minimum absolute rotation angle applied to movement for detours. */
+	detourAngleMinDeg: number;
+	/** Maximum absolute rotation angle applied to movement for detours. */
+	detourAngleMaxDeg: number;
 	/** How long to remember that a non-local player was interacting in a room. */
 	interactionSeenTtlMs: number;
 	/** If farther than this from target, keep a wall-avoidance center bias. */

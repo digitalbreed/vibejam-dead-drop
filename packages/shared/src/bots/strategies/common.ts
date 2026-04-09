@@ -187,6 +187,51 @@ export function keycardYieldPoint(
 	};
 }
 
+export function isVaultInteractionLeader(
+	context: BotDecisionContext,
+	vault: BotVaultPerception,
+	radiusPad = 1.8,
+): boolean {
+	const self = context.snapshot.self;
+	if (!self) {
+		return false;
+	}
+	const contenders = context.snapshot.players.filter((player) => {
+		if (!player.isAlive) {
+			return false;
+		}
+		const inSameRoom = player.roomId !== null && vault.roomId !== null && player.roomId === vault.roomId;
+		const nearVault = distance(player, vault) <= vault.range + radiusPad;
+		return inSameRoom || nearVault;
+	});
+	if (contenders.length <= 1) {
+		return true;
+	}
+	let winnerSessionId = self.sessionId;
+	let bestScore = Number.POSITIVE_INFINITY;
+	for (const contender of contenders) {
+		const score =
+			distance(contender, vault) +
+			deterministicNoise(`${contender.sessionId}:vault_open:${vault.id}`) * 0.45;
+		if (score < bestScore) {
+			bestScore = score;
+			winnerSessionId = contender.sessionId;
+		}
+	}
+	return winnerSessionId === self.sessionId;
+}
+
+export function vaultYieldPoint(
+	vault: BotVaultPerception,
+	sessionId: string,
+): { x: number; z: number } {
+	const side = deterministicNoise(`${sessionId}:vault_yield:${vault.id}`) < 0.5 ? -1 : 1;
+	return {
+		x: vault.x + side * 1.4,
+		z: vault.z + 2.45,
+	};
+}
+
 function contextPreferredKeycardColors(context: BotDecisionContext): Set<"blue" | "red"> {
 	const preferred = new Set<"blue" | "red">();
 	const blueContained = context.snapshot.keycards.some(

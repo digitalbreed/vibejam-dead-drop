@@ -1,0 +1,13 @@
+services:
+  app:
+    container_name: vibejam-dead-drop
+    build:
+      context: .
+      dockerfile: Dockerfile
+    image: vibejam-dead-drop:latest
+    restart: unless-stopped
+    environment:
+      NODE_ENV: production
+      PORT: ${APP_PORT:-2567}
+    ports:
+      - "${APP_PORT:-2567}:${APP_PORT:-2567}"

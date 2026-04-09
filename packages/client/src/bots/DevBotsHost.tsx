@@ -54,10 +54,10 @@ function BotClientViewport({
 	botsPaused: boolean;
 }) {
 	const { room, isConnecting, error } = useRoom();
+	const localSessionId = room?.sessionId;
 	const phase = useRoomState((state) => state.phase);
 	const localIsAlive = useRoomState((state) => {
-		const sessionId = room?.sessionId;
-		if (!sessionId) {
+		if (!localSessionId) {
 			return true;
 		}
 		const sourcePlayers = state?.players;
@@ -66,11 +66,27 @@ function BotClientViewport({
 		}
 		const player =
 			typeof sourcePlayers.get === "function"
-				? sourcePlayers.get(sessionId)
-				: (sourcePlayers as Record<string, any>)[sessionId];
+				? sourcePlayers.get(localSessionId)
+				: (sourcePlayers as Record<string, any>)[localSessionId];
 		return player?.isAlive !== false;
 	});
+	const localName = useRoomState((state) => {
+		if (!localSessionId) {
+			return "";
+		}
+		const sourcePlayers = state?.players;
+		if (!sourcePlayers) {
+			return "";
+		}
+		const player =
+			typeof sourcePlayers.get === "function"
+				? sourcePlayers.get(localSessionId)
+				: (sourcePlayers as Record<string, any>)[localSessionId];
+		return typeof player?.name === "string" ? player.name.trim() : "";
+	});
 	const [team, setTeam] = useState<GameTeam | null>(null);
+	const safeLocalIsAlive = localIsAlive ?? true;
+	const safeLocalName = localName ?? "";
 
 	useDevBotController({
 		slot,
@@ -79,7 +95,7 @@ function BotClientViewport({
 		phase,
 		isConnecting,
 		error,
-		isAlive: localIsAlive !== false,
+		isAlive: safeLocalIsAlive !== false,
 		isPaused: botsPaused,
 	});
 
@@ -111,14 +127,14 @@ function BotClientViewport({
 	}
 
 	const roleLabel = team === "enforcers" ? "Enforcer" : team === "shredders" ? "Shredder" : null;
+	const activeName = safeLocalName || `Bot ${slot + 1}`;
+	const activeLabel = roleLabel ? `${activeName}, ${roleLabel}` : activeName;
 	const activeText =
 		phase === "lobby"
 			? `Bot ${slot + 1} waiting`
-			: localIsAlive === false
+			: safeLocalIsAlive === false
 				? `Bot ${slot + 1} dead`
-				: roleLabel
-					? `Bot ${slot + 1} (${roleLabel}) active`
-					: `Bot ${slot + 1} active`;
+				: `Bot ${slot + 1} (${activeLabel}) active`;
 	const statusText = mode === "placeholder" ? `${activeText} (preview paused)` : activeText;
 
 	return (

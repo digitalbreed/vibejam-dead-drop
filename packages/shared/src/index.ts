@@ -70,6 +70,11 @@ export type GameServerMessages = {
 	interaction_feedback: {
 		kind: "error_beep";
 	};
+	explosion_event: {
+		x: number;
+		z: number;
+		range: number;
+	};
 	ticker_event:
 		| {
 				event: "keycard_first_pickup";
@@ -77,6 +82,6 @@ export type GameServerMessages = {
 		  }
 		| {
 				event: "agent_died";
-				agentCode: string;
+				agentName: string;
 		  };
 };

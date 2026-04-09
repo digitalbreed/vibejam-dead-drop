@@ -86,6 +86,9 @@ export function createBotRuntime(partialConfig: Partial<BotRuntimeConfig> = {}):
 		}
 
 		if (memory.escapeUntilMs > snapshot.timeMs && memory.escapeVector) {
+			if (memory.escapeMode === "vault_unwedge") {
+				memory.escapeVector = vaultUnwedgeStepVector(memory, snapshot);
+			}
 			logs.push({ level: "debug", message: "escape_active", timeMs: snapshot.timeMs });
 			return {
 				moveVector: memory.escapeVector,
@@ -98,6 +101,9 @@ export function createBotRuntime(partialConfig: Partial<BotRuntimeConfig> = {}):
 		if (snapshot.timeMs < memory.pauseUntilMs) {
 			logs.push({ level: "debug", message: "pause_active", timeMs: snapshot.timeMs });
 			return defaultCommand(logs);
+		}
+		if (memory.roundStartActiveAtMs <= 0) {
+			memory.roundStartActiveAtMs = snapshot.timeMs;
 		}
 
 		const decision = strategy.decide({ snapshot, memory, config, logs });
@@ -121,22 +127,34 @@ export function createBotRuntime(partialConfig: Partial<BotRuntimeConfig> = {}):
 		}
 
 		const command = decisionToCommand(decision, logs, config);
-		updateStuckState(memory, snapshot, command, logs);
-		if (command.moveVector) {
+		const delayedCommand = applyActionDelayHandicap(memory, snapshot, command, config, logs);
+		const detouredCommand = applyDetourHandicap(memory, snapshot, delayedCommand, config, logs);
+		if (shouldTriggerAmbientPause(memory, snapshot, command, config)) {
+			stateTransitionPause(memory, snapshot.timeMs, config.ambientPauseMinMs, config.ambientPauseMaxMs);
+			memory.lastAmbientPauseAtMs = snapshot.timeMs;
 			logs.push({
 				level: "debug",
-				message: `move_vector x=${command.moveVector.x.toFixed(2)} z=${command.moveVector.z.toFixed(2)}`,
+				message: `ambient_pause until=${Math.round(memory.pauseUntilMs)}`,
+				timeMs: snapshot.timeMs,
+			});
+			return defaultCommand(logs);
+		}
+		updateStuckState(memory, snapshot, detouredCommand, logs);
+		if (detouredCommand.moveVector) {
+			logs.push({
+				level: "debug",
+				message: `move_vector x=${detouredCommand.moveVector.x.toFixed(2)} z=${detouredCommand.moveVector.z.toFixed(2)}`,
 				timeMs: snapshot.timeMs,
 			});
 		}
-		if (command.interactPress || command.interactHold || command.trapHold) {
+		if (detouredCommand.interactPress || detouredCommand.interactHold || detouredCommand.trapHold) {
 			logs.push({
 				level: "debug",
-				message: `action interactPress=${String(command.interactPress)} interactHold=${String(command.interactHold)} trapHold=${String(command.trapHold)}`,
+				message: `action interactPress=${String(detouredCommand.interactPress)} interactHold=${String(detouredCommand.interactHold)} trapHold=${String(detouredCommand.trapHold)}`,
 				timeMs: snapshot.timeMs,
 			});
 		}
-		return command;
+		return detouredCommand;
 	};
 
 	return {
@@ -150,6 +168,31 @@ export function createBotRuntime(partialConfig: Partial<BotRuntimeConfig> = {}):
 	};
 }
 
+function shouldTriggerAmbientPause(
+	memory: BotMemory,
+	snapshot: BotPerceptionSnapshot,
+	command: BotCommand,
+	config: BotRuntimeConfig,
+): boolean {
+	if (!command.moveVector) {
+		return false;
+	}
+	if (command.interactPress || command.interactHold || command.trapHold) {
+		return false;
+	}
+	if (snapshot.timeMs - memory.lastAmbientPauseAtMs < config.ambientPauseMinSpacingMs) {
+		return false;
+	}
+	let chance = config.ambientPauseChancePerDecision;
+	if (
+		memory.roundStartActiveAtMs > 0 &&
+		snapshot.timeMs - memory.roundStartActiveAtMs <= config.earlyRoundPauseWindowMs
+	) {
+		chance += config.earlyRoundExtraPauseChancePerDecision;
+	}
+	return Math.random() < chance;
+}
+
 function updateStuckState(
 	memory: BotMemory,
 	snapshot: BotPerceptionSnapshot,
@@ -160,11 +203,13 @@ function updateStuckState(
 	if (!self) {
 		memory.lastPosition = null;
 		memory.stuckTicks = 0;
+		memory.escapeMode = null;
 		return;
 	}
 	if (!command.moveVector) {
 		memory.lastPosition = { x: self.x, z: self.z };
 		memory.stuckTicks = 0;
+		memory.escapeMode = null;
 		return;
 	}
 	// Ignore intentional stationary action windows (holds/presses) and tiny nudges.
@@ -172,12 +217,14 @@ function updateStuckState(
 	if (command.interactPress || command.interactHold || command.trapHold) {
 		memory.lastPosition = { x: self.x, z: self.z };
 		memory.stuckTicks = 0;
+		memory.escapeMode = null;
 		return;
 	}
 	const moveMagnitude = Math.hypot(command.moveVector.x, command.moveVector.z);
 	if (moveMagnitude < 0.4) {
 		memory.lastPosition = { x: self.x, z: self.z };
 		memory.stuckTicks = 0;
+		memory.escapeMode = null;
 		return;
 	}
 	const previous = memory.lastPosition;
@@ -195,31 +242,212 @@ function updateStuckState(
 	if (memory.stuckTicks < 12) {
 		return;
 	}
-	const roomCenter = self.roomId !== null ? snapshot.map.roomCenters.get(self.roomId) : null;
-	let escapeX = 0;
-	let escapeZ = 0;
-	if (roomCenter) {
-		escapeX = roomCenter.x - self.x;
-		escapeZ = roomCenter.z - self.z;
-	}
-	const len = Math.hypot(escapeX, escapeZ);
-	if (len <= 0.001) {
-		const angle = deterministicNoise(`${self.sessionId}:${Math.round(snapshot.timeMs / 250)}`) * Math.PI * 2;
-		escapeX = Math.cos(angle);
-		escapeZ = Math.sin(angle);
-	} else {
-		escapeX /= len;
-		escapeZ /= len;
-	}
-	memory.escapeVector = { x: escapeX, z: escapeZ };
-	memory.escapeUntilMs = snapshot.timeMs + 650;
+	const recovery = buildRecoveryVector(snapshot);
+	memory.escapeVector = recovery.vector;
+	memory.escapeUntilMs = snapshot.timeMs + recovery.durationMs;
+	memory.escapeMode = recovery.mode;
+	memory.escapeStartedAtMs = snapshot.timeMs;
 	memory.pauseUntilMs = 0;
 	memory.stuckTicks = 0;
 	logs.push({
 		level: "warn",
-		message: `stuck_recovery escape_until=${Math.round(memory.escapeUntilMs)}`,
+		message: `stuck_recovery mode=${recovery.mode} escape_until=${Math.round(memory.escapeUntilMs)}`,
 		timeMs: snapshot.timeMs,
 	});
+}
+
+function applyActionDelayHandicap(
+	memory: BotMemory,
+	snapshot: BotPerceptionSnapshot,
+	command: BotCommand,
+	config: BotRuntimeConfig,
+	logs: BotLogEntry[],
+): BotCommand {
+	const actionSig = `${command.interactPress ? 1 : 0}${command.interactHold ? 1 : 0}${command.trapHold ? 1 : 0}`;
+	const wantsAction = command.interactPress || command.interactHold || command.trapHold;
+	if (!wantsAction) {
+		if (snapshot.timeMs >= memory.actionDelayUntilMs) {
+			memory.actionDelayUntilMs = 0;
+		}
+		memory.lastRequestedActionSig = "";
+		return command;
+	}
+	if (memory.lastRequestedActionSig !== actionSig && memory.actionDelayUntilMs <= 0) {
+		memory.actionDelayUntilMs = snapshot.timeMs + randomBetween(config.actionDelayMinMs, config.actionDelayMaxMs);
+		memory.lastRequestedActionSig = actionSig;
+		logs.push({
+			level: "debug",
+			message: `action_delay until=${Math.round(memory.actionDelayUntilMs)}`,
+			timeMs: snapshot.timeMs,
+		});
+		return stripActions(command);
+	}
+	if (snapshot.timeMs < memory.actionDelayUntilMs) {
+		return stripActions(command);
+	}
+	memory.actionDelayUntilMs = 0;
+	memory.lastRequestedActionSig = actionSig;
+	return command;
+}
+
+function applyDetourHandicap(
+	memory: BotMemory,
+	snapshot: BotPerceptionSnapshot,
+	command: BotCommand,
+	config: BotRuntimeConfig,
+	logs: BotLogEntry[],
+): BotCommand {
+	if (!command.moveVector || command.interactPress || command.interactHold || command.trapHold) {
+		if (snapshot.timeMs >= memory.detourUntilMs) {
+			memory.detourUntilMs = 0;
+			memory.detourVector = null;
+		}
+		return command;
+	}
+	if (memory.detourUntilMs > snapshot.timeMs && memory.detourVector) {
+		return { ...command, moveVector: memory.detourVector };
+	}
+	if (snapshot.timeMs - memory.lastDetourAtMs < config.detourMinSpacingMs) {
+		return command;
+	}
+	let chance = config.detourChancePerDecision;
+	if (
+		memory.roundStartActiveAtMs > 0 &&
+		snapshot.timeMs - memory.roundStartActiveAtMs <= config.earlyRoundPauseWindowMs
+	) {
+		chance += 0.05;
+	}
+	if (Math.random() >= chance) {
+		return command;
+	}
+	const current = command.moveVector;
+	const angleDeg = randomBetween(config.detourAngleMinDeg, config.detourAngleMaxDeg) * (Math.random() < 0.5 ? -1 : 1);
+	const angleRad = (angleDeg * Math.PI) / 180;
+	const cos = Math.cos(angleRad);
+	const sin = Math.sin(angleRad);
+	const vx = current.x * cos - current.z * sin;
+	const vz = current.x * sin + current.z * cos;
+	const len = Math.hypot(vx, vz);
+	if (len <= 0.001) {
+		return command;
+	}
+	memory.detourVector = { x: vx / len, z: vz / len };
+	memory.detourUntilMs = snapshot.timeMs + randomBetween(config.detourMinMs, config.detourMaxMs);
+	memory.lastDetourAtMs = snapshot.timeMs;
+	logs.push({
+		level: "debug",
+		message: `detour until=${Math.round(memory.detourUntilMs)}`,
+		timeMs: snapshot.timeMs,
+	});
+	return { ...command, moveVector: memory.detourVector };
+}
+
+function stripActions(command: BotCommand): BotCommand {
+	if (!command.interactPress && !command.interactHold && !command.trapHold) {
+		return command;
+	}
+	return {
+		...command,
+		interactPress: false,
+		interactHold: false,
+		trapHold: false,
+	};
+}
+
+function randomBetween(min: number, max: number): number {
+	const lo = Math.max(0, Math.min(min, max));
+	const hi = Math.max(lo, Math.max(min, max));
+	return lo + Math.random() * (hi - lo);
+}
+
+function buildRecoveryVector(
+	snapshot: BotPerceptionSnapshot,
+): { vector: { x: number; z: number }; durationMs: number; mode: "vault_unwedge" | "room_center" | "random" } {
+	const self = snapshot.self;
+	if (!self) {
+		return { vector: { x: 0, z: 1 }, durationMs: 500, mode: "random" };
+	}
+	const carryingKeycard = snapshot.keycards.some((keycard) => keycard.carrierSessionId === self.sessionId);
+	const vault = snapshot.vaults[0];
+	if (carryingKeycard && vault) {
+		const distToVault = Math.hypot(self.x - vault.x, self.z - vault.z);
+		if (distToVault <= 4.4) {
+			const dx = self.x - vault.x;
+			const dz = self.z - vault.z;
+			let vx = 0;
+			let vz = 0;
+			// Phase 1: if hugging a side corner, strafe toward center first.
+			if (Math.abs(dx) > 0.72) {
+				vx = dx > 0 ? -1 : 1;
+				vz = 0.2;
+			} else if (dz < 0.95) {
+				// Phase 2: pull to front (south) with slight anti-drift toward center.
+				vx = Math.abs(dx) > 0.22 ? (dx > 0 ? -0.45 : 0.45) : 0;
+				vz = 1;
+			} else {
+				// Already near front side: settle toward insertion lane centerline.
+				vx = Math.abs(dx) > 0.16 ? (dx > 0 ? -0.55 : 0.55) : 0;
+				vz = 0.75;
+			}
+			const len = Math.hypot(vx, vz);
+			if (len > 0.001) {
+				return {
+					vector: { x: vx / len, z: vz / len },
+					durationMs: 1050,
+					mode: "vault_unwedge",
+				};
+			}
+		}
+	}
+	const roomCenter = self.roomId !== null ? snapshot.map.roomCenters.get(self.roomId) : null;
+	if (roomCenter) {
+		const vx = roomCenter.x - self.x;
+		const vz = roomCenter.z - self.z;
+		const len = Math.hypot(vx, vz);
+		if (len > 0.001) {
+			return {
+				vector: { x: vx / len, z: vz / len },
+				durationMs: 650,
+				mode: "room_center",
+			};
+		}
+	}
+	const angle = deterministicNoise(`${self.sessionId}:${Math.round(snapshot.timeMs / 250)}`) * Math.PI * 2;
+	return {
+		vector: { x: Math.cos(angle), z: Math.sin(angle) },
+		durationMs: 650,
+		mode: "random",
+	};
+}
+
+function vaultUnwedgeStepVector(
+	memory: BotMemory,
+	snapshot: BotPerceptionSnapshot,
+): { x: number; z: number } {
+	const self = snapshot.self;
+	const vault = snapshot.vaults[0];
+	if (!self || !vault) {
+		return memory.escapeVector ?? { x: 0, z: 1 };
+	}
+	const elapsed = snapshot.timeMs - memory.escapeStartedAtMs;
+	const dx = self.x - vault.x;
+	if (elapsed < 360) {
+		// Phase 1: pure lateral to unstick from side/back corner.
+		return { x: dx >= 0 ? -1 : 1, z: 0 };
+	}
+	if (elapsed < 760) {
+		// Phase 2: pure south drift to get out of the back edge.
+		return { x: 0, z: 1 };
+	}
+	// Phase 3: diagonal settle toward front-center lane.
+	const centerBias = Math.abs(dx) > 0.18 ? (dx > 0 ? -0.6 : 0.6) : 0;
+	const vx = centerBias;
+	const vz = 1;
+	const len = Math.hypot(vx, vz);
+	if (len <= 0.001) {
+		return { x: 0, z: 1 };
+	}
+	return { x: vx / len, z: vz / len };
 }
 
 function deterministicNoise(key: string): number {

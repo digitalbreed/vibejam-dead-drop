@@ -18,6 +18,15 @@ export function createInitialBotMemory(): BotMemory {
 		stuckTicks: 0,
 		escapeUntilMs: 0,
 		escapeVector: null,
+		escapeMode: null,
+		escapeStartedAtMs: 0,
+		roundStartActiveAtMs: 0,
+		lastAmbientPauseAtMs: 0,
+		lastDetourAtMs: 0,
+		detourUntilMs: 0,
+		detourVector: null,
+		actionDelayUntilMs: 0,
+		lastRequestedActionSig: "",
 	};
 }
 

@@ -19,7 +19,8 @@ function getTickerText(event: TickerEvent): string {
 		return `SOMEONE FOUND THE ${event.color.toUpperCase()} KEYCARD`;
 	}
 	if (event.event === "agent_died") {
-		return `AGENT ${event.agentCode} DIED`;
+		const name = event.agentName.trim();
+		return `${(name || "AN AGENT").toUpperCase()} DIED`;
 	}
 	return "UNKNOWN EVENT";
 }

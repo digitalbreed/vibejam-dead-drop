@@ -1,30 +1,26 @@
-import { useMemo, useRef, useEffect, useLayoutEffect, useState } from "react";
-import { Canvas, useFrame, useThree } from "@react-three/fiber";
-import { Color, DoubleSide, Group, Vector2, Vector3 } from "three";
+import { useMemo, useRef, useEffect, useState } from "react";
+import { Canvas, useFrame } from "@react-three/fiber";
+import { Vector2, Vector3 } from "three";
 import {
 	buildClosedDoorWalls,
 	buildCollisionWalls,
 	buildFileCabinetCollisionWalls,
 	buildVaultCollisionWalls,
 	CELL_SIZE,
+	type GameServerMessages,
 	generateFileCabinetPlacements,
 	generateVaultPlacement,
 	generateMapLayout,
 	layoutRoomMap,
 	moveWithCollision,
 	type DoorState,
-	type GameClientMessages,
 	type KeycardState,
 	type SuitcaseState,
 } from "@vibejam/shared";
 import { useRoom, useRoomState } from "../colyseus/roomContext";
 import { schemaMapValues } from "../colyseus/schemaMap";
 import { DoorLayer } from "./doors/DoorLayer";
-import {
-	createWindowKeyboardInputSource,
-	type KeyboardInputSource,
-	type KeyboardLikeEvent,
-} from "./input/keyboardInput";
+import { type KeyboardInputSource } from "./input/keyboardInput";
 import { KeycardLayer } from "./keycards/KeycardLayer";
 import { LightingLayer } from "./LightingLayer";
 import { MapLevel } from "./MapLevel";
@@ -32,32 +28,31 @@ import { SuitcaseLayer } from "./suitcases/SuitcaseLayer";
 import { VaultLayer } from "./vaults/VaultLayer";
 import { FileCabinetLayer } from "./fileCabinets/FileCabinetLayer";
 import { CelRenderLayer } from "./celRender";
-import { OutlinedMesh } from "./toonOutline/OutlinedMesh";
 import { TrapLayer } from "./traps/TrapLayer";
+import { DebugOrbitCamera, ThirdPersonCamera, ThrottledInvalidator } from "./scene/CameraControllers";
+import { ComicExplosionEffect, EXPLOSION_FX_DURATION_MS } from "./scene/ComicExplosionEffect";
+import { MovementInput } from "./scene/MovementInput";
+import { PlayerVisual, type KeycardColor } from "./scene/PlayerVisual";
 
 const MOVE_SPEED = 12;
-const CAMERA_OFFSET = { x: 0, y: 8.5, z: 14 };
 const COMPASS_LABELS = ["East", "Northeast", "North", "Northwest", "West", "Southwest", "South", "Southeast"] as const;
-const ORBIT_MIN_RADIUS = 4;
-const ORBIT_MAX_RADIUS = 60;
-const ORBIT_MIN_POLAR = 0.2;
-const ORBIT_MAX_POLAR = Math.PI - 0.2;
 
 export type AreaInfo = {
 	labelByCell: Map<string, string>;
 };
 export type FogState = "hidden" | "explored" | "visible";
 export type PassthroughKind = "none" | "frontWall";
-type KeycardColor = "blue" | "red";
-const SHORT_PRESS_MAX_MS = 220;
-const HOLD_START_DELAY_MS = 180;
-const DEAD_REVEAL_BATCH_SIZE = 560;
-const DEAD_REVEAL_BATCH_MS = 16;
+const DEAD_REVEAL_START_DELAY_MS = 3000;
+const DEAD_REVEAL_STEP_MS = 1000;
+const DEAD_CAMERA_FOLLOW_SPEED_THRESHOLD = 0.22;
 
-const KEYCARD_COLOR_BY_KIND: Record<KeycardColor, string> = {
-	blue: "#1fb5ff",
-	red: "#ff2c44",
+type ExplosionFx = {
+	id: number;
+	x: number;
+	z: number;
+	spawnMs: number;
 };
+
 
 function buildFogByCellWithForcedVisible(
 	areaInfo: AreaInfo,
@@ -237,599 +232,6 @@ function buildAreaInfo(layout: ReturnType<typeof generateMapLayout>): AreaInfo {
 	return { labelByCell };
 }
 
-function PlayerVisual({
-	color,
-	isLocal,
-	positionRef,
-	target,
-	smoothing,
-	carriedKeycardColor,
-	carriedSuitcase,
-	isInteracting,
-	interactionProgress,
-	interactionStyle,
-	isAlive = true,
-	outlined = true,
-}: {
-	color: number;
-	isLocal: boolean;
-	positionRef?: React.MutableRefObject<Vector3>;
-	target?: { x: number; z: number };
-	smoothing: number;
-	carriedKeycardColor?: KeycardColor | null;
-	carriedSuitcase?: boolean;
-	isInteracting?: boolean;
-	interactionProgress?: number;
-	interactionStyle?: string;
-	isAlive?: boolean;
-	outlined?: boolean;
-}) {
-	const groupRef = useRef<Group>(null);
-	const visualRef = useRef<Group>(null);
-	const leftEyeRef = useRef<Group>(null);
-	const rightEyeRef = useRef<Group>(null);
-	const colorObj = useMemo(() => new Color(color), [color]);
-	const targetRef = useRef(new Vector3(target?.x ?? 0, 0, target?.z ?? 0));
-	const lastPositionRef = useRef(new Vector3(target?.x ?? 0, 0, target?.z ?? 0));
-	const facingAngleRef = useRef(0);
-	const blinkTimerRef = useRef(Math.random() * 2.5 + 0.5);
-	const blinkDurationRef = useRef(0);
-	const wobblePhaseRef = useRef(Math.random() * Math.PI * 2);
-
-	useLayoutEffect(() => {
-		const group = groupRef.current;
-		if (!group) {
-			return;
-		}
-		if (positionRef) {
-			group.position.copy(positionRef.current);
-			targetRef.current.copy(positionRef.current);
-			lastPositionRef.current.copy(positionRef.current);
-			return;
-		}
-		group.position.set(target?.x ?? 0, 0, target?.z ?? 0);
-		targetRef.current.set(target?.x ?? 0, 0, target?.z ?? 0);
-		lastPositionRef.current.set(target?.x ?? 0, 0, target?.z ?? 0);
-	}, []);
-
-	useEffect(() => {
-		if (!positionRef && target) {
-			targetRef.current.set(target.x, 0, target.z);
-		}
-	}, [positionRef, target?.x, target?.z]);
-
-	useFrame((_, dt) => {
-		const group = groupRef.current;
-		const visual = visualRef.current;
-		if (!group) {
-			return;
-		}
-		if (positionRef) {
-			group.position.copy(positionRef.current);
-		} else {
-			const alpha = 1 - Math.exp(-dt * smoothing);
-			group.position.lerp(targetRef.current, alpha);
-		}
-
-		const dx = group.position.x - lastPositionRef.current.x;
-		const dz = group.position.z - lastPositionRef.current.z;
-		const movementSq = dx * dx + dz * dz;
-		const movementAmount = Math.sqrt(movementSq);
-		if (movementSq > 0.00001) {
-			facingAngleRef.current = Math.atan2(dx, dz);
-		}
-		lastPositionRef.current.copy(group.position);
-
-		if (visual) {
-			if (!isAlive) {
-				visual.position.set(0, 0.1, 0);
-				visual.scale.set(1, 1, 1);
-				visual.rotation.y += (facingAngleRef.current - visual.rotation.y) * (1 - Math.exp(-dt * 12));
-				visual.rotation.x += (-Math.PI / 2 - visual.rotation.x) * (1 - Math.exp(-dt * 16));
-				visual.rotation.z += (0 - visual.rotation.z) * (1 - Math.exp(-dt * 16));
-			} else {
-				const turnAlpha = 1 - Math.exp(-dt * 12);
-				visual.rotation.y += (facingAngleRef.current - visual.rotation.y) * turnAlpha;
-				const speed = movementAmount / Math.max(dt, 0.0001);
-				if (speed > 0.05) {
-					wobblePhaseRef.current += dt * Math.min(18, 4 + speed * 0.9);
-				}
-				const wobbleStrength = Math.min(1, speed / MOVE_SPEED);
-				const wobbleRoll = Math.sin(wobblePhaseRef.current) * 0.22 * wobbleStrength;
-				visual.rotation.x = 0;
-				visual.rotation.z += (wobbleRoll - visual.rotation.z) * (1 - Math.exp(-dt * 14));
-				if (isInteracting) {
-					const t = performance.now() / 1000;
-					const jiggleX = Math.sin(t * 21 + wobblePhaseRef.current * 0.7) * 0.045;
-					const jiggleY = Math.cos(t * 17 + wobblePhaseRef.current * 0.5) * 0.05;
-					const jiggleZ = Math.sin(t * 19 + wobblePhaseRef.current * 0.9) * 0.045;
-					visual.position.set(jiggleX, jiggleY, jiggleZ);
-					const squash = 1 + Math.sin(t * 12) * 0.12;
-					visual.scale.set(1.05, 1 / squash, 1.05);
-				} else {
-					visual.position.set(0, 0, 0);
-					visual.scale.set(1, 1, 1);
-				}
-			}
-		}
-
-		if (isAlive) {
-			if (blinkDurationRef.current > 0) {
-				blinkDurationRef.current = Math.max(0, blinkDurationRef.current - dt);
-			} else {
-				blinkTimerRef.current -= dt;
-				if (blinkTimerRef.current <= 0) {
-					blinkDurationRef.current = 0.12;
-					blinkTimerRef.current = Math.random() * 2.8 + 1.4;
-				}
-			}
-
-			const blinkPhase = blinkDurationRef.current > 0 ? 1 - Math.abs(blinkDurationRef.current - 0.06) / 0.06 : 0;
-			const eyelidScale = 1 - blinkPhase * 0.92;
-			if (leftEyeRef.current) {
-				leftEyeRef.current.scale.y = eyelidScale;
-			}
-			if (rightEyeRef.current) {
-				rightEyeRef.current.scale.y = eyelidScale;
-			}
-		} else {
-			if (leftEyeRef.current) {
-				leftEyeRef.current.scale.y = 1;
-			}
-			if (rightEyeRef.current) {
-				rightEyeRef.current.scale.y = 1;
-			}
-		}
-	});
-
-	return (
-		<group ref={groupRef}>
-			<group ref={visualRef}>
-				<OutlinedMesh
-					castShadow={isLocal}
-					receiveShadow
-					position={[0, 0.8, 0]}
-					outlined={outlined}
-					geometryNode={<coneGeometry args={[0.45, 1.6, 10]} />}
-					materialNode={<meshToonMaterial color={colorObj} />}
-				/>
-				<group position={[0, 1.02, 0.3]}>
-					<group ref={leftEyeRef} position={[-0.13, 0, -0.05]}>
-						<mesh castShadow={isLocal}>
-							<sphereGeometry args={[0.12, 18, 18]} />
-							<meshToonMaterial color="#fffaf0" />
-						</mesh>
-						{isAlive ? (
-							<mesh position={[0.01, -0.01, 0.075]}>
-								<sphereGeometry args={[0.048, 14, 14]} />
-								<meshToonMaterial color="#111111" />
-							</mesh>
-						) : (
-							<group position={[0.01, -0.01, 0.12]}>
-								<mesh rotation={[0, 0, Math.PI / 4]}>
-									<boxGeometry args={[0.14, 0.022, 0.01]} />
-									<meshToonMaterial color="#111111" />
-								</mesh>
-								<mesh rotation={[0, 0, -Math.PI / 4]}>
-									<boxGeometry args={[0.14, 0.022, 0.01]} />
-									<meshToonMaterial color="#111111" />
-								</mesh>
-							</group>
-						)}
-					</group>
-					<group ref={rightEyeRef} position={[0.13, 0, -0.05]}>
-						<mesh castShadow={isLocal}>
-							<sphereGeometry args={[0.12, 18, 18]} />
-							<meshToonMaterial color="#fffaf0" />
-						</mesh>
-						{isAlive ? (
-							<mesh position={[-0.01, -0.01, 0.075]}>
-								<sphereGeometry args={[0.048, 14, 14]} />
-								<meshToonMaterial color="#111111" />
-							</mesh>
-						) : (
-							<group position={[-0.01, -0.01, 0.12]}>
-								<mesh rotation={[0, 0, Math.PI / 4]}>
-									<boxGeometry args={[0.14, 0.022, 0.01]} />
-									<meshToonMaterial color="#111111" />
-								</mesh>
-								<mesh rotation={[0, 0, -Math.PI / 4]}>
-									<boxGeometry args={[0.14, 0.022, 0.01]} />
-									<meshToonMaterial color="#111111" />
-								</mesh>
-							</group>
-						)}
-					</group>
-				</group>
-				{carriedKeycardColor ? (
-					<group position={[0.52, 0.51, 0.08]} rotation={[0, Math.PI / 2, 0]}>
-						<OutlinedMesh
-							castShadow={isLocal}
-							receiveShadow
-							outlined={outlined}
-							geometryNode={<boxGeometry args={[0.62, 0.06, 0.38]} />}
-							materialNode={
-								<meshToonMaterial
-									color={new Color(KEYCARD_COLOR_BY_KIND[carriedKeycardColor])}
-									emissive={new Color(KEYCARD_COLOR_BY_KIND[carriedKeycardColor])}
-									emissiveIntensity={0.45}
-								/>
-							}
-						/>
-						<OutlinedMesh
-							position={[0, 0.036, 0]}
-							castShadow={isLocal}
-							receiveShadow
-							outlined={outlined}
-							geometryNode={<boxGeometry args={[0.22, 0.016, 0.26]} />}
-							materialNode={<meshToonMaterial color="#f4f6fa" />}
-						/>
-					</group>
-				) : null}
-				{carriedSuitcase ? (
-					<group position={[-0.44, 0.44, -0.02]}>
-						<group rotation={[0, Math.PI / 2 - 0.28, 0]}>
-							<group rotation={[0, 0, -0.1]}>
-								<OutlinedMesh
-									castShadow={isLocal}
-									receiveShadow
-									outlined={outlined}
-									geometryNode={<boxGeometry args={[0.75, 0.5, 0.15]} />}
-									materialNode={<meshToonMaterial color="#a9b5c2" emissive="#4a5562" emissiveIntensity={0.18} />}
-								/>
-								<OutlinedMesh
-									position={[0, 0.24, 0]}
-									castShadow={isLocal}
-									receiveShadow
-									outlined={outlined}
-									geometryNode={<torusGeometry args={[0.12, 0.02, 10, 18]} />}
-									materialNode={<meshToonMaterial color="#c3ccd6" />}
-								/>
-							</group>
-						</group>
-					</group>
-				) : null}
-			</group>
-			{isInteracting ? (
-				<group position={[0, 2.45, 0]}>
-					<mesh position={[0, 0, 0]} renderOrder={1}>
-						<circleGeometry args={[0.38, 40]} />
-						<meshToonMaterial color="#1f2832" side={DoubleSide} depthWrite={false} />
-					</mesh>
-					<mesh position={[0, 0.035, 0]} rotation={[0, 0, 0]} renderOrder={2}>
-						<circleGeometry
-							args={[
-								0.32,
-								40,
-								Math.PI / 2,
-								-Math.PI * 2 * Math.max(0, Math.min(1, interactionProgress ?? 0)),
-							]}
-						/>
-						<meshToonMaterial
-							color={interactionStyle === "danger" ? "#ff8b8b" : "#7cd6ff"}
-							emissive={interactionStyle === "danger" ? "#ff3d3d" : "#2db9ff"}
-							emissiveIntensity={0.9}
-
-
-							side={DoubleSide}
-							depthWrite={false}
-							polygonOffset
-							polygonOffsetFactor={-1}
-						/>
-					</mesh>
-				</group>
-			) : null}
-		</group>
-	);
-}
-
-function ThirdPersonCamera({ targetRef, enabled }: { targetRef: React.MutableRefObject<Vector3>; enabled: boolean }) {
-	const { camera } = useThree();
-	useFrame(() => {
-		if (!enabled) {
-			return;
-		}
-		const target = targetRef.current;
-		camera.position.set(target.x + CAMERA_OFFSET.x, target.y + CAMERA_OFFSET.y, target.z + CAMERA_OFFSET.z);
-		camera.lookAt(target);
-	});
-	return null;
-}
-
-function DebugOrbitCamera({ targetRef, enabled }: { targetRef: React.MutableRefObject<Vector3>; enabled: boolean }) {
-	const { camera, gl } = useThree();
-	const orbitRef = useRef({
-		radius: 16,
-		theta: 0,
-		phi: 1.1,
-		dragging: false,
-		lastX: 0,
-		lastY: 0,
-		initialized: false,
-	});
-
-	useEffect(() => {
-		orbitRef.current.dragging = false;
-		if (!enabled) {
-			return;
-		}
-		orbitRef.current.initialized = false;
-		const element = gl.domElement;
-
-		const onPointerDown = (e: PointerEvent) => {
-			if (e.button !== 0) {
-				return;
-			}
-			orbitRef.current.dragging = true;
-			orbitRef.current.lastX = e.clientX;
-			orbitRef.current.lastY = e.clientY;
-			element.setPointerCapture(e.pointerId);
-		};
-		const onPointerMove = (e: PointerEvent) => {
-			if (!orbitRef.current.dragging) {
-				return;
-			}
-			const dx = e.clientX - orbitRef.current.lastX;
-			const dy = e.clientY - orbitRef.current.lastY;
-			orbitRef.current.lastX = e.clientX;
-			orbitRef.current.lastY = e.clientY;
-			orbitRef.current.theta -= dx * 0.007;
-			orbitRef.current.phi = clamp(orbitRef.current.phi + dy * 0.007, ORBIT_MIN_POLAR, ORBIT_MAX_POLAR);
-		};
-		const onPointerUp = (e: PointerEvent) => {
-			orbitRef.current.dragging = false;
-			if (element.hasPointerCapture(e.pointerId)) {
-				element.releasePointerCapture(e.pointerId);
-			}
-		};
-		const onWheel = (e: WheelEvent) => {
-			e.preventDefault();
-			const zoomScale = Math.exp(e.deltaY * 0.0015);
-			orbitRef.current.radius = clamp(orbitRef.current.radius * zoomScale, ORBIT_MIN_RADIUS, ORBIT_MAX_RADIUS);
-		};
-
-		element.addEventListener("pointerdown", onPointerDown);
-		element.addEventListener("pointermove", onPointerMove);
-		element.addEventListener("pointerup", onPointerUp);
-		element.addEventListener("pointercancel", onPointerUp);
-		element.addEventListener("pointerleave", onPointerUp);
-		element.addEventListener("wheel", onWheel, { passive: false });
-		return () => {
-			element.removeEventListener("pointerdown", onPointerDown);
-			element.removeEventListener("pointermove", onPointerMove);
-			element.removeEventListener("pointerup", onPointerUp);
-			element.removeEventListener("pointercancel", onPointerUp);
-			element.removeEventListener("pointerleave", onPointerUp);
-			element.removeEventListener("wheel", onWheel);
-		};
-	}, [enabled, gl]);
-
-	useFrame(() => {
-		if (!enabled) {
-			return;
-		}
-		const target = targetRef.current;
-		if (!orbitRef.current.initialized) {
-			const offsetX = camera.position.x - target.x;
-			const offsetY = camera.position.y - target.y;
-			const offsetZ = camera.position.z - target.z;
-			const distance = Math.hypot(offsetX, offsetY, offsetZ);
-			if (distance > 0.001) {
-				orbitRef.current.radius = clamp(distance, ORBIT_MIN_RADIUS, ORBIT_MAX_RADIUS);
-				orbitRef.current.theta = Math.atan2(offsetX, offsetZ);
-				orbitRef.current.phi = clamp(Math.acos(clamp(offsetY / distance, -1, 1)), ORBIT_MIN_POLAR, ORBIT_MAX_POLAR);
-			}
-			orbitRef.current.initialized = true;
-		}
-
-		const sinPhi = Math.sin(orbitRef.current.phi);
-		camera.position.set(
-			target.x + orbitRef.current.radius * sinPhi * Math.sin(orbitRef.current.theta),
-			target.y + orbitRef.current.radius * Math.cos(orbitRef.current.phi),
-			target.z + orbitRef.current.radius * sinPhi * Math.cos(orbitRef.current.theta),
-		);
-		camera.lookAt(target);
-	});
-
-	return null;
-}
-
-function ThrottledInvalidator({ fps }: { fps: number }) {
-	const { invalidate } = useThree();
-
-	useEffect(() => {
-		if (!Number.isFinite(fps) || fps <= 0) {
-			return;
-		}
-		const intervalMs = Math.max(16, Math.round(1000 / fps));
-		const intervalId = window.setInterval(() => {
-			invalidate();
-		}, intervalMs);
-		return () => {
-			window.clearInterval(intervalId);
-		};
-	}, [fps, invalidate]);
-
-	return null;
-}
-
-const windowKeyboardInputSource = createWindowKeyboardInputSource();
-
-function MovementInput({
-	inputRef,
-	enabled,
-	inputSource,
-	deadMode,
-}: {
-	inputRef: React.MutableRefObject<Vector2>;
-	enabled: boolean;
-	inputSource?: KeyboardInputSource;
-	deadMode: boolean;
-}) {
-	const { room } = useRoom();
-	const keys = useRef({ KeyW: false, KeyA: false, KeyS: false, KeyD: false });
-	const interactHoldRef = useRef<{
-		pressed: boolean;
-		holdSent: boolean;
-		startMs: number;
-		timerId: number | null;
-	}>({ pressed: false, holdSent: false, startMs: 0, timerId: null });
-	const trapHoldRef = useRef<{
-		pressed: boolean;
-		holdSent: boolean;
-		startMs: number;
-		timerId: number | null;
-	}>({ pressed: false, holdSent: false, startMs: 0, timerId: null });
-
-	const source = inputSource ?? windowKeyboardInputSource;
-	const deadStopSentRef = useRef(false);
-
-	useEffect(() => {
-		const onDown = (e: KeyboardLikeEvent) => {
-			if (!enabled) {
-				return;
-			}
-			if (!deadMode && e.code === "KeyE" && !e.repeat && room) {
-				interactHoldRef.current.pressed = true;
-				interactHoldRef.current.holdSent = false;
-				interactHoldRef.current.startMs = performance.now();
-				if (interactHoldRef.current.timerId !== null) {
-					window.clearTimeout(interactHoldRef.current.timerId);
-				}
-				interactHoldRef.current.timerId = window.setTimeout(() => {
-					if (!interactHoldRef.current.pressed || interactHoldRef.current.holdSent) {
-						return;
-					}
-					interactHoldRef.current.holdSent = true;
-					const holdPayload: GameClientMessages["interact_hold"] = { active: true };
-					room.send("interact_hold", holdPayload);
-				}, HOLD_START_DELAY_MS);
-			}
-			if (!deadMode && e.code === "KeyQ" && !e.repeat && room) {
-				trapHoldRef.current.pressed = true;
-				trapHoldRef.current.holdSent = false;
-				trapHoldRef.current.startMs = performance.now();
-				if (trapHoldRef.current.timerId !== null) {
-					window.clearTimeout(trapHoldRef.current.timerId);
-				}
-				trapHoldRef.current.timerId = window.setTimeout(() => {
-					if (!trapHoldRef.current.pressed || trapHoldRef.current.holdSent) {
-						return;
-					}
-					trapHoldRef.current.holdSent = true;
-					const holdPayload: GameClientMessages["trap_hold"] = { active: true };
-					room.send("trap_hold", holdPayload);
-				}, HOLD_START_DELAY_MS);
-			}
-			if (e.code in keys.current) {
-				keys.current[e.code as keyof typeof keys.current] = true;
-			}
-		};
-		const onUp = (e: KeyboardLikeEvent) => {
-			if (e.code === "KeyE" && room) {
-				const heldMs = performance.now() - interactHoldRef.current.startMs;
-				interactHoldRef.current.pressed = false;
-				if (interactHoldRef.current.timerId !== null) {
-					window.clearTimeout(interactHoldRef.current.timerId);
-					interactHoldRef.current.timerId = null;
-				}
-				if (interactHoldRef.current.holdSent) {
-					const holdPayload: GameClientMessages["interact_hold"] = { active: false };
-					room.send("interact_hold", holdPayload);
-				}
-				if (!deadMode && !interactHoldRef.current.holdSent && heldMs <= SHORT_PRESS_MAX_MS) {
-					const interactPayload: GameClientMessages["interact"] = {};
-					room.send("interact", interactPayload);
-				}
-				interactHoldRef.current.holdSent = false;
-			}
-			if (e.code === "KeyQ" && room) {
-				trapHoldRef.current.pressed = false;
-				if (trapHoldRef.current.timerId !== null) {
-					window.clearTimeout(trapHoldRef.current.timerId);
-					trapHoldRef.current.timerId = null;
-				}
-				if (trapHoldRef.current.holdSent) {
-					const holdPayload: GameClientMessages["trap_hold"] = { active: false };
-					room.send("trap_hold", holdPayload);
-				}
-				trapHoldRef.current.holdSent = false;
-			}
-			if (e.code in keys.current) {
-				keys.current[e.code as keyof typeof keys.current] = false;
-			}
-		};
-		return source.subscribe(onDown, onUp);
-	}, [deadMode, enabled, room, source]);
-
-	useFrame(() => {
-		if (!room) {
-			return;
-		}
-		if (!enabled) {
-			keys.current.KeyW = false;
-			keys.current.KeyA = false;
-			keys.current.KeyS = false;
-			keys.current.KeyD = false;
-			inputRef.current.set(0, 0);
-			if (interactHoldRef.current.timerId !== null) {
-				window.clearTimeout(interactHoldRef.current.timerId);
-				interactHoldRef.current.timerId = null;
-			}
-			if (interactHoldRef.current.holdSent) {
-				interactHoldRef.current.pressed = false;
-				interactHoldRef.current.holdSent = false;
-				const holdPayload: GameClientMessages["interact_hold"] = { active: false };
-				room.send("interact_hold", holdPayload);
-			}
-			if (trapHoldRef.current.timerId !== null) {
-				window.clearTimeout(trapHoldRef.current.timerId);
-				trapHoldRef.current.timerId = null;
-			}
-			if (trapHoldRef.current.holdSent) {
-				trapHoldRef.current.pressed = false;
-				trapHoldRef.current.holdSent = false;
-				const holdPayload: GameClientMessages["trap_hold"] = { active: false };
-				room.send("trap_hold", holdPayload);
-			}
-			const payload: GameClientMessages["input"] = { x: 0, z: 0 };
-			room.send("input", payload);
-			return;
-		}
-		const k = keys.current;
-		let x = 0;
-		let z = 0;
-		if (k.KeyW) {
-			z -= 1;
-		}
-		if (k.KeyS) {
-			z += 1;
-		}
-		if (k.KeyA) {
-			x -= 1;
-		}
-		if (k.KeyD) {
-			x += 1;
-		}
-		const len = Math.hypot(x, z);
-		const nx = len > 1 ? x / len : x;
-		const nz = len > 1 ? z / len : z;
-		inputRef.current.set(nx, nz);
-		if (deadMode) {
-			if (!deadStopSentRef.current) {
-				const payload: GameClientMessages["input"] = { x: 0, z: 0 };
-				room.send("input", payload);
-				deadStopSentRef.current = true;
-			}
-			return;
-		}
-		deadStopSentRef.current = false;
-		const payload: GameClientMessages["input"] = { x: nx, z: nz };
-		room.send("input", payload);
-	});
-
-	return null;
-}
 
 function SceneContent({
 	onAreaChange,
@@ -863,10 +265,84 @@ function SceneContent({
 	const localVisualRef = useRef(new Vector3(0, 0.5, 0));
 	const spectatorTargetRef = useRef(new Vector3(0, 0.5, 0));
 	const deadStateRef = useRef(false);
+	const deadCameraFollowRef = useRef(false);
 	const authoritativeRef = useRef(new Vector3());
 	const lastAreaRef = useRef<string>("");
 	const [currentArea, setCurrentArea] = useState("Start Room");
 	const [visitedAreas, setVisitedAreas] = useState<Set<string>>(() => new Set(["Start Room"]));
+	const [explosions, setExplosions] = useState<ExplosionFx[]>([]);
+	const explosionIdRef = useRef(0);
+	const audioContextRef = useRef<AudioContext | null>(null);
+
+	useEffect(() => {
+		return () => {
+			if (audioContextRef.current) {
+				void audioContextRef.current.close();
+				audioContextRef.current = null;
+			}
+		};
+	}, []);
+
+	const getAudioContext = () => {
+		const AudioContextCtor = window.AudioContext ?? (window as typeof window & { webkitAudioContext?: typeof AudioContext }).webkitAudioContext;
+		if (!AudioContextCtor) {
+			return null;
+		}
+		if (!audioContextRef.current || audioContextRef.current.state === "closed") {
+			audioContextRef.current = new AudioContextCtor();
+		}
+		return audioContextRef.current;
+	};
+
+	const playTrapExplosionSound = (volume: number) => {
+		const context = getAudioContext();
+		if (!context) {
+			return;
+		}
+		const now = context.currentTime;
+		const masterGain = context.createGain();
+		masterGain.gain.setValueAtTime(0.0001, now);
+		masterGain.gain.exponentialRampToValueAtTime(Math.max(0.0001, 0.42 * volume), now + 0.012);
+		masterGain.gain.exponentialRampToValueAtTime(Math.max(0.0001, 0.26 * volume), now + 0.28);
+		masterGain.gain.exponentialRampToValueAtTime(0.0001, now + 1.08);
+		masterGain.connect(context.destination);
+
+		const mainOsc = context.createOscillator();
+		mainOsc.type = "sawtooth";
+		mainOsc.frequency.setValueAtTime(290, now);
+		mainOsc.frequency.exponentialRampToValueAtTime(64, now + 0.62);
+		const mainGain = context.createGain();
+		mainGain.gain.setValueAtTime(1.08, now);
+		mainGain.gain.exponentialRampToValueAtTime(0.0001, now + 0.88);
+		mainOsc.connect(mainGain);
+		mainGain.connect(masterGain);
+		mainOsc.start(now);
+		mainOsc.stop(now + 0.92);
+
+		const tailOsc = context.createOscillator();
+		tailOsc.type = "sawtooth";
+		tailOsc.frequency.setValueAtTime(170, now);
+		tailOsc.frequency.exponentialRampToValueAtTime(38, now + 0.95);
+		const tailGain = context.createGain();
+		tailGain.gain.setValueAtTime(0.86, now);
+		tailGain.gain.exponentialRampToValueAtTime(0.0001, now + 1.0);
+		tailOsc.connect(tailGain);
+		tailGain.connect(masterGain);
+		tailOsc.start(now + 0.01);
+		tailOsc.stop(now + 1.02);
+
+		const rumbleOsc = context.createOscillator();
+		rumbleOsc.type = "sawtooth";
+		rumbleOsc.frequency.setValueAtTime(78, now);
+		rumbleOsc.frequency.exponentialRampToValueAtTime(26, now + 1.02);
+		const rumbleGain = context.createGain();
+		rumbleGain.gain.setValueAtTime(0.52, now + 0.03);
+		rumbleGain.gain.exponentialRampToValueAtTime(0.0001, now + 1.04);
+		rumbleOsc.connect(rumbleGain);
+		rumbleGain.connect(masterGain);
+		rumbleOsc.start(now + 0.02);
+		rumbleOsc.stop(now + 1.05);
+	};
 
 	useEffect(() => {
 		if (!audioEnabled) {
@@ -900,6 +376,55 @@ function SceneContent({
 			}, 280);
 		});
 	}, [audioEnabled, room]);
+
+	useEffect(() => {
+		if (!room) {
+			return;
+		}
+		return room.onMessage("explosion_event", (message: GameServerMessages["explosion_event"]) => {
+			const fx: ExplosionFx = {
+				id: ++explosionIdRef.current,
+				x: message.x,
+				z: message.z,
+				spawnMs: performance.now(),
+			};
+			setExplosions((current) => {
+				const next = [...current, fx];
+				return next.length > 12 ? next.slice(next.length - 12) : next;
+			});
+			if (!audioEnabled) {
+				return;
+			}
+			const sessionId = room.sessionId;
+			const local = sessionId ? getPlayerBySessionId(players, sessionId) : undefined;
+			if (!local) {
+				return;
+			}
+			const dx = local.x - message.x;
+			const dz = local.z - message.z;
+			const dist = Math.hypot(dx, dz);
+			if (dist > message.range) {
+				return;
+			}
+			const normalized = Math.min(1, dist / Math.max(0.001, message.range));
+			const volume = 1 - normalized * normalized;
+			playTrapExplosionSound(Math.max(0.08, volume));
+		});
+	}, [audioEnabled, players, room]);
+
+	useEffect(() => {
+		if (explosions.length === 0) {
+			return;
+		}
+		const timerId = window.setInterval(() => {
+			setExplosions((current) => {
+				const now = performance.now();
+				const next = current.filter((fx) => now - fx.spawnMs <= EXPLOSION_FX_DURATION_MS + 120);
+				return next.length === current.length ? current : next;
+			});
+		}, 110);
+		return () => window.clearInterval(timerId);
+	}, [explosions.length]);
 
 	const layout = useMemo(() => {
 		return generateMapLayout(mapSeed ?? 0, mapMaxDistance ?? 12);
@@ -939,8 +464,18 @@ function SceneContent({
 		[dynamicWalls, fileCabinetWalls, staticWalls],
 	);
 	const areaInfo = useMemo(() => buildAreaInfo(layout), [layout]);
-	const allCellKeys = useMemo(() => Array.from(areaInfo.labelByCell.keys()), [areaInfo.labelByCell]);
-	const [deadRevealCount, setDeadRevealCount] = useState(0);
+	const [deadRevealAreaCount, setDeadRevealAreaCount] = useState(0);
+	const spectatorAreaOrder = useMemo(() => {
+		const unique = new Set<string>();
+		for (const areaLabel of areaInfo.labelByCell.values()) {
+			unique.add(areaLabel);
+		}
+		return [...unique].filter((label) => label !== currentArea).sort((a, b) => a.localeCompare(b));
+	}, [areaInfo.labelByCell, currentArea]);
+	const spectatorRevealedAreas = useMemo(
+		() => new Set(spectatorAreaOrder.slice(0, Math.min(deadRevealAreaCount, spectatorAreaOrder.length))),
+		[deadRevealAreaCount, spectatorAreaOrder],
+	);
 	const mapBounds = useMemo(() => {
 		let minX = Infinity;
 		let maxX = -Infinity;
@@ -960,16 +495,9 @@ function SceneContent({
 	const localSessionId = room?.sessionId;
 	const localPlayerSnapshot = localSessionId ? getPlayerBySessionId(players, localSessionId) : undefined;
 	const localIsAlive = localPlayerSnapshot?.isAlive !== false;
-	const deadRevealComplete = deadRevealCount >= allCellKeys.length;
-	const revealAllNow = revealAll;
+	const deadRevealComplete = deadRevealAreaCount >= spectatorAreaOrder.length;
+	const revealAllNow = revealAll || spectatorReveal;
 	const spectatorGlobalActive = spectatorReveal && deadRevealComplete;
-	const forcedVisibleCells = useMemo(() => {
-		if (!spectatorReveal) {
-			return null;
-		}
-		const capped = Math.max(0, Math.min(deadRevealCount, allCellKeys.length));
-		return new Set(allCellKeys.slice(0, capped));
-	}, [allCellKeys, deadRevealCount, spectatorReveal]);
 	const fogByCell = useMemo(
 		() =>
 			buildFogByCellWithForcedVisible(
@@ -977,28 +505,53 @@ function SceneContent({
 				currentArea,
 				visitedAreas,
 				revealAllNow,
-				forcedVisibleCells,
+				null,
 			),
-		[areaInfo, currentArea, forcedVisibleCells, revealAllNow, visitedAreas],
+		[areaInfo, currentArea, revealAllNow, visitedAreas],
 	);
 	const cameraTargetRef = localIsAlive ? localVisualRef : spectatorTargetRef;
 
 	useEffect(() => {
 		if (!spectatorReveal) {
-			setDeadRevealCount(0);
+			setDeadRevealAreaCount(0);
 			return;
 		}
-		setDeadRevealCount(0);
-		const timer = window.setInterval(() => {
-			setDeadRevealCount((current) => {
-				if (current >= allCellKeys.length) {
-					return current;
+		setDeadRevealAreaCount(0);
+		let cancelled = false;
+		let timerId: number | null = null;
+
+		const scheduleNextStep = () => {
+			if (cancelled) {
+				return;
+			}
+			timerId = window.setTimeout(() => {
+				if (cancelled) {
+					return;
 				}
-				return Math.min(allCellKeys.length, current + DEAD_REVEAL_BATCH_SIZE);
-			});
-		}, DEAD_REVEAL_BATCH_MS);
-		return () => window.clearInterval(timer);
-	}, [allCellKeys.length, spectatorReveal]);
+				setDeadRevealAreaCount((current) => {
+					const next = Math.min(spectatorAreaOrder.length, current + 1);
+					if (next < spectatorAreaOrder.length) {
+						scheduleNextStep();
+					}
+					return next;
+				});
+			}, DEAD_REVEAL_STEP_MS);
+		};
+
+		timerId = window.setTimeout(() => {
+			if (cancelled || spectatorAreaOrder.length === 0) {
+				return;
+			}
+			scheduleNextStep();
+		}, DEAD_REVEAL_START_DELAY_MS);
+
+		return () => {
+			cancelled = true;
+			if (timerId !== null) {
+				window.clearTimeout(timerId);
+			}
+		};
+	}, [spectatorAreaOrder.length, spectatorReveal]);
 
 	useEffect(() => {
 		const sessionId = room?.sessionId;
@@ -1026,6 +579,27 @@ function SceneContent({
 			if (!deadStateRef.current) {
 				deadStateRef.current = true;
 				spectatorTargetRef.current.set(localVisualRef.current.x, 0.5, localVisualRef.current.z);
+				deadCameraFollowRef.current = true;
+			}
+			authoritativeRef.current.set(local.x, 0.5, local.z);
+			const deadDx = authoritativeRef.current.x - localVisualRef.current.x;
+			const deadDz = authoritativeRef.current.z - localVisualRef.current.z;
+			const deadErrorSq = deadDx * deadDx + deadDz * deadDz;
+			if (deadErrorSq > 2.8) {
+				localVisualRef.current.copy(authoritativeRef.current);
+			} else {
+				localVisualRef.current.x += deadDx * Math.min(1, dt * 14);
+				localVisualRef.current.z += deadDz * Math.min(1, dt * 14);
+			}
+			const deadSpeed = Math.hypot(deadDx, deadDz) / Math.max(dt, 0.0001);
+			if (deadSpeed > DEAD_CAMERA_FOLLOW_SPEED_THRESHOLD) {
+				deadCameraFollowRef.current = true;
+			} else if (deadSpeed < DEAD_CAMERA_FOLLOW_SPEED_THRESHOLD * 0.6) {
+				deadCameraFollowRef.current = false;
+			}
+			if (deadCameraFollowRef.current) {
+				spectatorTargetRef.current.set(localVisualRef.current.x, 0.5, localVisualRef.current.z);
+				return;
 			}
 			const panSpeed = MOVE_SPEED * 1.2;
 			spectatorTargetRef.current.x = clamp(
@@ -1142,6 +716,7 @@ function SceneContent({
 				currentArea={currentArea}
 				fogByCell={fogByCell}
 				forceAllActive={spectatorGlobalActive}
+				spectatorRevealedAreas={spectatorReveal ? spectatorRevealedAreas : null}
 				outlinesEnabled={outlinesEnabled}
 			/>
 			<MapLevel
@@ -1202,6 +777,13 @@ function SceneContent({
 				currentArea={currentArea}
 				outlinesEnabled={outlinesEnabled}
 			/>
+			{explosions.map((fx) => {
+				const fog = fogByCell.get(`${Math.round(fx.x / CELL_SIZE)},${Math.round(fx.z / CELL_SIZE)}`) ?? "hidden";
+				if (!revealAllNow && fog === "hidden") {
+					return null;
+				}
+				return <ComicExplosionEffect key={fx.id} x={fx.x} z={fx.z} spawnMs={fx.spawnMs} />;
+			})}
 			{list.map((p) =>
 				p.isLocal ? (
 					<PlayerVisual
@@ -1227,9 +809,9 @@ function SceneContent({
 						smoothing={18}
 						carriedKeycardColor={p.carriedKeycardColor}
 						carriedSuitcase={p.carriedSuitcase}
-						isInteracting={p.isInteracting}
-						interactionProgress={p.interactionProgress}
-						interactionStyle={p.interactionStyle}
+						isInteracting={false}
+						interactionProgress={0}
+						interactionStyle="normal"
 						isAlive={p.isAlive}
 						outlined={outlinesEnabled}
 					/>

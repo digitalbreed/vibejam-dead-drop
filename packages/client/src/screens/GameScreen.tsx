@@ -142,6 +142,25 @@ export function GameScreen({
 	}, [briefingStage]);
 
 	const briefingCopy = team ? BRIEFING_BY_TEAM[team] : null;
+	const playerName =
+		typeof localPlayer?.name === "string" && localPlayer.name.trim().length > 0
+			? localPlayer.name.trim()
+			: "Agent";
+	const teamLabel = team ? BRIEFING_BY_TEAM[team].teamLabel : "UNASSIGNED";
+	const teamColor = team ? BRIEFING_BY_TEAM[team].color : "#a8b6c8";
+	const trapSlotsByIndex = new Map<number, any>(
+		trapSlots.map((slot) => [Number(slot?.slotIndex ?? -1), slot]),
+	);
+	const trapIndicators = Array.from({ length: 3 }, (_, slotIndex) => {
+		const slot = trapSlotsByIndex.get(slotIndex);
+		return (
+			slot ?? {
+				id: `trap-slot-placeholder-${slotIndex}`,
+				slotIndex,
+				status: "unused",
+			}
+		);
+	});
 
 	const briefingTransform =
 		briefingStage === "pre-enter"
@@ -246,53 +265,123 @@ export function GameScreen({
 					left: 12,
 					zIndex: 3,
 					display: "flex",
-					gap: 8,
+					alignItems: "stretch",
+					gap: 18,
+					fontFamily: "'Bebas Neue', Impact, Haettenschweiler, 'Arial Narrow Bold', sans-serif",
+					textTransform: "uppercase",
+					letterSpacing: "0.06em",
+					textShadow: "0 1px 8px rgba(0, 0, 0, 0.65)",
 				}}
 			>
-				{trapSlots.map((slot) => {
-					const isActive = slot.status === "active";
-					const isUsed = slot.status === "used";
-					const isCharging = activeTrapSlot === slot.slotIndex;
-					const progress = isCharging ? activeTrapProgress : 0;
-					return (
-						<div
-							key={slot.id}
-							style={{
-								width: 84,
-								height: 54,
-								position: "relative",
-								borderRadius: 8,
-								border: `1px solid ${
-									isUsed ? "rgba(255, 84, 84, 0.9)" : isActive ? "rgba(76, 246, 150, 0.9)" : "rgba(156, 174, 196, 0.55)"
-								}`,
-								background: isUsed
-									? "rgba(112, 24, 24, 0.8)"
-									: isActive
-										? "rgba(18, 88, 50, 0.82)"
-										: "rgba(18, 24, 32, 0.82)",
-								animation: isActive ? "trap-hud-blink 1s steps(2, end) infinite" : "none",
-								display: "flex",
-								alignItems: "center",
-								justifyContent: "center",
-								overflow: "hidden",
-							}}
-						>
-							<div style={{ fontSize: "0.78rem", letterSpacing: "0.06em", color: "#e7eef8" }}>TNT {slot.slotIndex + 1}</div>
-							{isCharging ? (
-								<div
-									style={{
-										position: "absolute",
-										left: 0,
-										bottom: 0,
-										height: 4,
-										width: `${Math.round(progress * 100)}%`,
-										background: "#ff5353",
-									}}
-								/>
-							) : null}
-						</div>
-					);
-				})}
+				<div style={{ display: "flex", flexDirection: "column", gap: 2, justifyContent: "space-between" }}>
+					<div
+						style={{
+							display: "flex",
+							alignItems: "center",
+							gap: 6,
+							color: "#ffffff",
+							fontSize: "1.45rem",
+							lineHeight: 1,
+							fontWeight: 700,
+						}}
+					>
+						<span>{playerName}</span>
+						<span style={{ opacity: 0.75 }}>-</span>
+						<span style={{ color: teamColor }}>{teamLabel}</span>
+					</div>
+					<div
+						style={{
+							fontSize: "0.9rem",
+							letterSpacing: "0.03em",
+							color: "rgba(214, 227, 242, 0.86)",
+						}}
+					>
+						{areaLabel}
+					</div>
+				</div>
+				<div style={{ display: "flex", gap: 8, alignItems: "stretch", height: "2.35rem" }}>
+					{trapIndicators.map((slot) => {
+						const isActive = slot.status === "active";
+						const isUsed = slot.status === "used";
+						const isCharging = activeTrapSlot === slot.slotIndex;
+						const progress = isCharging ? activeTrapProgress : 0;
+						const borderWidth = 4;
+						const borderColor = isUsed
+							? "rgba(255, 84, 84, 0.94)"
+							: isActive
+								? "rgba(24, 141, 75, 0.95)"
+								: "rgba(255, 255, 255, 0.4)";
+						return (
+							<div
+								key={slot.id}
+								style={{
+									height: "100%",
+									aspectRatio: "1 / 1",
+									boxSizing: "border-box",
+									position: "relative",
+									display: "flex",
+									alignItems: "center",
+									justifyContent: "center",
+									overflow: "hidden"
+								}}
+							>
+								<div style={{
+									position: "absolute",
+									top: 0,
+									left: 0,
+									right: 0,
+									bottom: 0,
+									borderRadius: "50%",
+									border: `${borderWidth}px solid ${borderColor}`,
+									background: "rgba(18, 24, 32, 0.82)",
+									animation: isActive ? "trap-hud-blink 1s steps(2, end) infinite" : "none",
+								}}>
+									<div
+										style={{
+											position: "absolute",
+											inset: 0,
+											borderRadius: "50%",
+											overflow: "hidden",
+											display: "flex",
+											alignItems: "center",
+											justifyContent: "center",
+										}}
+									>
+										<span
+											aria-label={`Bomb slot ${slot.slotIndex + 1}`}
+											role="img"
+											style={{
+												fontSize: "1rem",
+												lineHeight: 1,
+												filter: isUsed ? "grayscale(1) brightness(0.65)" : "none",
+											}}
+										>
+											💣
+										</span>
+									</div>
+								</div>
+								{isCharging ? (
+									<div
+										aria-hidden="true"
+										style={{
+											position: "absolute",
+											top: 0,
+											left: 0,
+											right: 0,
+											bottom: 0,
+											borderRadius: "50%",
+											pointerEvents: "none",
+											background: `conic-gradient(from 0deg, rgba(255, 83, 83, 1) 0turn ${progress}turn, transparent ${progress}turn 1turn)`,
+											//WebkitMask: `radial-gradient(farthest-side, transparent calc(100% - ${borderWidth}px), #000 calc(100% - ${borderWidth}px))`,
+											mask: `radial-gradient(farthest-side, transparent calc(100% - ${borderWidth}px), #000 calc(100% - ${borderWidth}px))`,
+
+										}}
+									/>
+								) : null}
+							</div>
+						);
+					})}
+				</div>
 			</div>
 			<GameScene
 				onAreaChange={setAreaLabel}
