@@ -1,6 +1,9 @@
 import { Room, Client } from "colyseus";
 import {
+	buildMapAwareness,
 	buildVaultCollisionWalls,
+	createBotRuntime,
+	DEFAULT_BOT_RUNTIME_CONFIG,
 	DoorState,
 	EscapeLadderState,
 	type FileCabinetFacing,
@@ -25,6 +28,10 @@ import {
 	generateKeycardPlacements,
 	generateMapLayout,
 	moveWithCollision,
+	type BotCommand,
+	type BotEventEnvelope,
+	type BotPerceptionSnapshot,
+	type BotRuntime,
 	type GameTeam,
 	spawnInCenterHub,
 	type GameClientMessages,
@@ -39,10 +46,13 @@ import { KeycardController } from "./interactables/KeycardController.js";
 import { SuitcaseController } from "./interactables/SuitcaseController.js";
 import { VaultController } from "./interactables/VaultController.js";
 
-/** Minimum players before the match starts (1 = solo dev; raise for real matchmaking). */
-const MIN_PLAYERS = Number(
-	process.env.MIN_PLAYERS ?? (process.env.NODE_ENV === "production" ? 1 : 4),
-);
+/** Target room size for production matchmaking (humans + server bots). */
+const TARGET_PLAYERS = Number(process.env.TARGET_PLAYERS ?? 4);
+/** Lobby wait time before the server fills remaining slots with bots. */
+const LOBBY_WAIT_MS = Number(process.env.LOBBY_WAIT_MS ?? 60_000);
+const BOT_SESSION_PREFIX = "bot:";
+const SERVER_BOT_DECISION_TICK_MS = Number(process.env.SERVER_BOT_DECISION_TICK_MS ?? 0);
+const SERVER_BOT_INPUT_TICK_MS = Number(process.env.SERVER_BOT_INPUT_TICK_MS ?? 0);
 
 const DEFAULT_MAP_MAX_DISTANCE = Number(process.env.MAP_MAX_DISTANCE ?? 12);
 const INTERACTION_DURATION_MS = 5000;
@@ -157,6 +167,19 @@ type DeadKnockbackState = {
 	speed: number;
 };
 
+type ServerBotController = {
+	sessionId: string;
+	team: GameTeam;
+	runtime: BotRuntime;
+	desiredCommand: BotCommand;
+	holdInteract: boolean;
+	holdTrap: boolean;
+	pulseRequested: number;
+	pulseHandled: number;
+	lastDecisionAtMs: number;
+	lastInputAtMs: number;
+};
+
 type JoinOptions = {
 	mapMaxDistance?: number;
 	operatorName?: string;
@@ -223,6 +246,9 @@ export class GameRoom extends Room {
 	private deadKnockback = new Map<string, DeadKnockbackState>();
 	private keycardsPickedUpColors = new Set<string>();
 	private exitFoundBroadcasted = false;
+	private lobbySkipRequested = false;
+	private teamBySessionId = new Map<string, GameTeam>();
+	private serverBots = new Map<string, ServerBotController>();
 	maxClients = 16;
 
 	messages = {
@@ -248,9 +274,23 @@ export class GameRoom extends Room {
 			const active = !!message?.active;
 			this.handleTrapHold(client, active);
 		},
+		lobby_skip_wait: (client: Client, _message: GameClientMessages["lobby_skip_wait"]) => {
+			if (this.state.phase !== "lobby") {
+				return;
+			}
+			const player = this.state.players.get(client.sessionId);
+			if (!player || player.isBot) {
+				return;
+			}
+			this.lobbySkipRequested = true;
+			this.tickLobby(Date.now());
+		},
 	};
 
 	onCreate(options: JoinOptions) {
+		const targetPlayers = Math.max(1, Math.min(16, Math.floor(TARGET_PLAYERS || 4)));
+		this.state.lobbyTargetPlayers = targetPlayers;
+		this.state.lobbyDeadlineEpochMs = 0;
 		this.state.mapSeed = (Math.random() * 0xffffffff) >>> 0;
 		const cap = Math.min(64, Math.max(2, options?.mapMaxDistance ?? DEFAULT_MAP_MAX_DISTANCE));
 		this.state.mapMaxDistance = cap;
@@ -271,6 +311,7 @@ export class GameRoom extends Room {
 		];
 		this.setSimulationInterval((deltaTime) => this.tick(deltaTime), 1000 / 20);
 		this.exitFoundBroadcasted = false;
+		this.lobbySkipRequested = false;
 	}
 
 	onJoin(client: Client, options: JoinOptions = {}) {
@@ -283,6 +324,7 @@ export class GameRoom extends Room {
 			existingNames.add(existing.name);
 		}
 		player.name = resolveOperatorName(options.operatorName, existingNames);
+		player.isBot = false;
 		const existingColors = new Set<number>();
 		for (const existing of this.state.players.values()) {
 			existingColors.add(existing.color);
@@ -291,6 +333,9 @@ export class GameRoom extends Room {
 		player.isAlive = true;
 		this.state.players.set(client.sessionId, player);
 		this.initializeTrapPoints(client.sessionId);
+		if (this.state.phase === "lobby" && this.state.lobbyDeadlineEpochMs <= 0) {
+			this.state.lobbyDeadlineEpochMs = Date.now() + Math.max(1_000, LOBBY_WAIT_MS);
+		}
 		this.tryStartMatch();
 	}
 
@@ -314,6 +359,7 @@ export class GameRoom extends Room {
 		this.deadKnockback.delete(client.sessionId);
 		this.removeOwnedTraps(client.sessionId);
 		this.removeTrapPoints(client.sessionId);
+		this.teamBySessionId.delete(client.sessionId);
 	}
 
 	onDispose() {
@@ -328,16 +374,23 @@ export class GameRoom extends Room {
 		this.vaultControllers.clear();
 		this.fileCabinetControllers.clear();
 		this.escapeLadderControllers.clear();
+		this.teamBySessionId.clear();
+		this.serverBots.clear();
 	}
 
 	private tryStartMatch() {
 		if (this.state.phase !== "lobby") {
 			return;
 		}
-		if (this.clients.length < MIN_PLAYERS) {
+		if (this.clients.length <= 0) {
+			return;
+		}
+		if (this.state.players.size < this.state.lobbyTargetPlayers) {
 			return;
 		}
 		const assignments = this.assignTeams();
+		this.teamBySessionId = new Map(assignments);
+		this.initializeServerBots(assignments);
 		this.sendRoleAssignments(assignments);
 		this.state.phase = "playing";
 		this.lock();
@@ -364,10 +417,184 @@ export class GameRoom extends Room {
 		}
 	}
 
+	private tickLobby(nowMs: number): void {
+		if (this.state.phase !== "lobby") {
+			return;
+		}
+		if (this.clients.length <= 0) {
+			return;
+		}
+		if (this.state.lobbyDeadlineEpochMs <= 0) {
+			this.state.lobbyDeadlineEpochMs = nowMs + Math.max(1_000, LOBBY_WAIT_MS);
+		}
+		if (this.state.players.size >= this.state.lobbyTargetPlayers) {
+			this.tryStartMatch();
+			return;
+		}
+		if (this.lobbySkipRequested || nowMs >= this.state.lobbyDeadlineEpochMs) {
+			this.fillLobbyWithServerBots();
+			this.tryStartMatch();
+		}
+	}
+
+	private fillLobbyWithServerBots(): void {
+		if (this.state.phase !== "lobby") {
+			return;
+		}
+		const needed = Math.max(0, this.state.lobbyTargetPlayers - this.state.players.size);
+		if (needed <= 0) {
+			return;
+		}
+		const existingNames = new Set<string>();
+		const existingColors = new Set<number>();
+		for (const [sessionId, player] of this.state.players.entries()) {
+			existingNames.add(player.name);
+			existingColors.add(player.color);
+			if (sessionId.startsWith(BOT_SESSION_PREFIX)) {
+				this.serverBots.delete(sessionId);
+			}
+		}
+		for (let i = 0; i < needed; i++) {
+			const sessionId = this.createServerBotSessionId(i);
+			if (this.state.players.has(sessionId)) {
+				continue;
+			}
+			const player = new Player();
+			const spawn = spawnInCenterHub(this.state.mapSeed, sessionId);
+			player.x = spawn.x;
+			player.z = spawn.z;
+			player.name = resolveOperatorName(undefined, existingNames);
+			player.isBot = true;
+			player.color = pickUniqueColor(existingColors, sessionId);
+			player.isAlive = true;
+			this.state.players.set(sessionId, player);
+			this.input.set(sessionId, { x: 0, z: 0 });
+			this.initializeTrapPoints(sessionId);
+			existingNames.add(player.name);
+			existingColors.add(player.color);
+		}
+	}
+
+	private initializeServerBots(assignments: ReadonlyMap<string, GameTeam>): void {
+		this.serverBots.clear();
+		for (const [sessionId, player] of this.state.players.entries()) {
+			if (!player.isBot) {
+				continue;
+			}
+			const team = assignments.get(sessionId);
+			if (!team) {
+				continue;
+			}
+			const runtime = createBotRuntime({
+				decisionTickMs:
+					SERVER_BOT_DECISION_TICK_MS > 0
+						? SERVER_BOT_DECISION_TICK_MS
+						: DEFAULT_BOT_RUNTIME_CONFIG.decisionTickMs,
+				inputTickMs:
+					SERVER_BOT_INPUT_TICK_MS > 0 ? SERVER_BOT_INPUT_TICK_MS : DEFAULT_BOT_RUNTIME_CONFIG.inputTickMs,
+			});
+			this.serverBots.set(sessionId, {
+				sessionId,
+				team,
+				runtime,
+				desiredCommand: {
+					moveVector: null,
+					interactPress: false,
+					interactHold: false,
+					trapHold: false,
+					logEntries: [],
+				},
+				holdInteract: false,
+				holdTrap: false,
+				pulseRequested: 0,
+				pulseHandled: 0,
+				lastDecisionAtMs: 0,
+				lastInputAtMs: 0,
+			});
+		}
+	}
+
+	private tickServerBots(nowMs: number): void {
+		if (this.serverBots.size <= 0) {
+			return;
+		}
+		for (const bot of this.serverBots.values()) {
+			const player = this.state.players.get(bot.sessionId);
+			if (!player) {
+				continue;
+			}
+			if (nowMs - bot.lastDecisionAtMs >= bot.runtime.config.decisionTickMs) {
+				bot.lastDecisionAtMs = nowMs;
+				const snapshot = this.buildServerBotSnapshot(bot.sessionId, bot.team, nowMs);
+				const command = bot.runtime.step(snapshot);
+				bot.desiredCommand = command;
+				if (command.interactPress) {
+					bot.pulseRequested += 1;
+				}
+				for (const entry of command.logEntries) {
+					if (entry.level === "debug") {
+						continue;
+					}
+					const prefix = `[srv-bot:${player.name}:${bot.team}]`;
+					if (entry.level === "warn") {
+						console.warn(prefix, entry.message);
+					} else {
+						console.info(prefix, entry.message);
+					}
+				}
+			}
+			if (nowMs - bot.lastInputAtMs < bot.runtime.config.inputTickMs) {
+				continue;
+			}
+			bot.lastInputAtMs = nowMs;
+			const command = bot.desiredCommand;
+			this.input.set(bot.sessionId, {
+				x: command.moveVector?.x ?? 0,
+				z: command.moveVector?.z ?? 0,
+			});
+			if (bot.holdInteract !== !!command.interactHold) {
+				bot.holdInteract = !!command.interactHold;
+				this.handleInteractHoldBySession(bot.sessionId, bot.holdInteract);
+			}
+			if (bot.holdTrap !== !!command.trapHold) {
+				bot.holdTrap = !!command.trapHold;
+				this.handleTrapHoldBySession(bot.sessionId, bot.holdTrap);
+			}
+			if (bot.pulseRequested > bot.pulseHandled) {
+				bot.pulseHandled = bot.pulseRequested;
+				if (!bot.holdInteract) {
+					this.handleInteractBySession(bot.sessionId);
+				}
+			}
+		}
+	}
+
+	private createServerBotSessionId(slot: number): string {
+		const stamp = Date.now().toString(36);
+		let attempt = 0;
+		while (attempt < 128) {
+			const suffix = Math.floor(Math.random() * 0xffff)
+				.toString(16)
+				.padStart(4, "0");
+			const sessionId = `${BOT_SESSION_PREFIX}${stamp}:${slot}:${attempt}:${suffix}`;
+			if (!this.state.players.has(sessionId)) {
+				return sessionId;
+			}
+			attempt += 1;
+		}
+		return `${BOT_SESSION_PREFIX}${stamp}:${slot}:${Math.floor(Math.random() * 1_000_000)}`;
+	}
+
 	private tick(deltaMs: number) {
+		const nowMs = Date.now();
+		if (this.state.phase === "lobby") {
+			this.tickLobby(nowMs);
+			return;
+		}
 		if (this.state.phase !== "playing") {
 			return;
 		}
+		this.tickServerBots(nowMs);
 		const alivePlayers = Array.from(this.state.players.values()).filter((player) => player.isAlive);
 		const previousPositionBySessionId = new Map<string, XY>();
 		for (const [sessionId, player] of this.state.players.entries()) {
@@ -379,13 +606,13 @@ export class GameRoom extends Room {
 		for (const controller of this.doorControllers) {
 			const events = controller.tick(alivePlayers, deltaMs);
 			for (const event of events) {
-				this.broadcast("interactable_event", event);
+				this.emitInteractableEvent(event);
 			}
 		}
 		for (const controller of this.vaultControllers.values()) {
 			const events = controller.tick(alivePlayers, deltaMs);
 			for (const event of events) {
-				this.broadcast("interactable_event", event);
+				this.emitInteractableEvent(event);
 			}
 		}
 		const dt = deltaMs / 1000;
@@ -421,7 +648,7 @@ export class GameRoom extends Room {
 				const roomId = roomMap.get(`${ix},${iz}`);
 				if (roomId === this.emergencyExitRoomId) {
 					this.hasBroadcastExitFound = true;
-					this.broadcast("ticker_event", { event: "exit_found" });
+					this.emitTickerEvent({ event: "exit_found" });
 					break;
 				}
 			}
@@ -560,7 +787,10 @@ export class GameRoom extends Room {
 	}
 
 	private handleInteract(client: Client) {
-		const sessionId = client.sessionId;
+		this.handleInteractBySession(client.sessionId, client);
+	}
+
+	private handleInteractBySession(sessionId: string, client?: Client) {
 		const player = this.state.players.get(sessionId);
 		if (!player) {
 			return;
@@ -575,7 +805,7 @@ export class GameRoom extends Room {
 		if (carriedSuitcase) {
 			const event = carriedSuitcase.drop(sessionId, player.x, player.z);
 			if (event) {
-				this.broadcast("interactable_event", event, { except: client });
+				this.emitInteractableEvent(event, client ? { except: client } : undefined);
 			}
 			return;
 		}
@@ -593,13 +823,13 @@ export class GameRoom extends Room {
 					carried.setContained(vault.vault.id);
 				}
 				for (const event of events) {
-					this.broadcast("interactable_event", event);
+					this.emitInteractableEvent(event);
 				}
 				return;
 			}
 			const event = carried.drop(sessionId, player.x, player.z);
 			if (event) {
-				this.broadcast("interactable_event", event, { except: client });
+				this.emitInteractableEvent(event, client ? { except: client } : undefined);
 			}
 			return;
 		}
@@ -612,7 +842,7 @@ export class GameRoom extends Room {
 			}
 			const event = nearestSuitcase.pickup(sessionId);
 			if (event) {
-				this.broadcast("interactable_event", event, { except: client });
+				this.emitInteractableEvent(event, client ? { except: client } : undefined);
 			}
 			return;
 		}
@@ -627,10 +857,10 @@ export class GameRoom extends Room {
 		}
 		const event = nearest.pickup(sessionId);
 		if (event) {
-			this.broadcast("interactable_event", event, { except: client });
+			this.emitInteractableEvent(event, client ? { except: client } : undefined);
 			if (!this.keycardsPickedUpColors.has(nearest.keycard.color)) {
 				this.keycardsPickedUpColors.add(nearest.keycard.color);
-				this.broadcast("ticker_event", { event: "keycard_first_pickup", color: nearest.keycard.color });
+				this.emitTickerEvent({ event: "keycard_first_pickup", color: nearest.keycard.color });
 			}
 		}
 	}
@@ -704,10 +934,15 @@ export class GameRoom extends Room {
 	}
 
 	private handleInteractHold(client: Client, active: boolean) {
+		this.handleInteractHoldBySession(client.sessionId, active, () => {
+			client.send("interaction_feedback", { kind: "error_beep" });
+		});
+	}
+
+	private handleInteractHoldBySession(sessionId: string, active: boolean, onError?: () => void) {
 		if (this.state.phase !== "playing") {
 			return;
 		}
-		const sessionId = client.sessionId;
 		this.interactionHold.set(sessionId, active);
 		const player = this.state.players.get(sessionId);
 		if (!player || !player.isAlive) {
@@ -730,7 +965,7 @@ export class GameRoom extends Room {
 		}
 		const candidate = this.findInteractionCandidate(player);
 		if (!candidate) {
-			client.send("interaction_feedback", { kind: "error_beep" });
+			onError?.();
 			return;
 		}
 		if (candidate.kind === "vault") {
@@ -741,7 +976,7 @@ export class GameRoom extends Room {
 			}
 		}
 		if (this.isInteractionTargetBusy(candidate.kind, candidate.id, sessionId)) {
-			client.send("interaction_feedback", { kind: "error_beep" });
+			onError?.();
 			return;
 		}
 		player.isInteracting = true;
@@ -823,10 +1058,15 @@ export class GameRoom extends Room {
 	}
 
 	private handleTrapHold(client: Client, active: boolean) {
+		this.handleTrapHoldBySession(client.sessionId, active, () => {
+			client.send("interaction_feedback", { kind: "error_beep" });
+		});
+	}
+
+	private handleTrapHoldBySession(sessionId: string, active: boolean, onError?: () => void) {
 		if (this.state.phase !== "playing") {
 			return;
 		}
-		const sessionId = client.sessionId;
 		this.trapHold.set(sessionId, active);
 		const player = this.state.players.get(sessionId);
 		if (!player || !player.isAlive) {
@@ -851,11 +1091,11 @@ export class GameRoom extends Room {
 		}
 		const candidate = this.findTrapPlacementCandidate(sessionId, player);
 		if (!candidate) {
-			client.send("interaction_feedback", { kind: "error_beep" });
+			onError?.();
 			return;
 		}
 		if (this.isInteractionTargetBusy("trap_place", candidate.targetId, sessionId)) {
-			client.send("interaction_feedback", { kind: "error_beep" });
+			onError?.();
 			return;
 		}
 		this.pendingTrapPlacement.set(sessionId, candidate);
@@ -1137,12 +1377,12 @@ export class GameRoom extends Room {
 			const controller = this.vaultControllers.get(player.interactionTargetId);
 			if (controller && controller.vault.isUnlocked && !controller.vault.isDoorOpen) {
 				for (const event of controller.completeInteraction()) {
-					this.broadcast("interactable_event", event);
+					this.emitInteractableEvent(event);
 				}
 				const suitcase = this.findPrimarySuitcase();
 				if (suitcase) {
 					const event = suitcase.forceCarry(sessionId);
-					this.broadcast("interactable_event", event);
+					this.emitInteractableEvent(event);
 				}
 			}
 		} else if (player.interactionKind === "file_cabinet") {
@@ -1155,7 +1395,7 @@ export class GameRoom extends Room {
 					return;
 				}
 				for (const event of controller.completeInteraction(sessionId)) {
-					this.broadcast("interactable_event", event);
+					this.emitInteractableEvent(event);
 				}
 			}
 		} else if (player.interactionKind === "escape_ladder") {
@@ -1172,7 +1412,7 @@ export class GameRoom extends Room {
 					carriedSuitcase.setUsed();
 					if (!this.exitFoundBroadcasted) {
 						this.exitFoundBroadcasted = true;
-						this.broadcast("ticker_event", { event: "exit_found" });
+						this.emitTickerEvent({ event: "exit_found" });
 					}
 				}
 			}
@@ -1372,14 +1612,14 @@ export class GameRoom extends Room {
 		if (carried) {
 			const event = carried.drop(sessionId, deathDrop.x, deathDrop.z);
 			if (event) {
-				this.broadcast("interactable_event", event);
+				this.emitInteractableEvent(event);
 			}
 		}
 		const carriedSuitcase = this.findCarriedSuitcase(sessionId);
 		if (carriedSuitcase) {
 			const event = carriedSuitcase.drop(sessionId, deathDrop.x, deathDrop.z);
 			if (event) {
-				this.broadcast("interactable_event", event);
+				this.emitInteractableEvent(event);
 			}
 		}
 
@@ -1387,7 +1627,132 @@ export class GameRoom extends Room {
 			event: "agent_died",
 			agentName: player.name,
 		};
-		this.broadcast("ticker_event", payload);
+		this.emitTickerEvent(payload);
+	}
+
+	private buildServerBotSnapshot(sessionId: string, team: GameTeam, nowMs: number): BotPerceptionSnapshot {
+		const doors: BotPerceptionSnapshot["doors"] = Array.from(this.state.interactables.values(), (door) => ({
+			id: door.id,
+			x: door.x,
+			z: door.z,
+			isOpen: door.isOpen,
+			range: door.range,
+			facing: door.facing === "z" ? "z" : "x",
+			roomA: null as number | null,
+			roomB: null as number | null,
+		}));
+		const map = buildMapAwareness(this.state.mapSeed, this.state.mapMaxDistance, doors);
+		const players: BotPerceptionSnapshot["players"] = Array.from(this.state.players.entries(), ([id, player]) => ({
+			sessionId: id,
+			x: player.x,
+			z: player.z,
+			isAlive: player.isAlive,
+			isInteracting: player.isInteracting,
+			interactionKind: player.interactionKind,
+			interactionTargetId: player.interactionTargetId,
+			roomId: null as number | null,
+		}));
+		const self = players.find((player) => player.sessionId === sessionId) ?? null;
+		const keycards: BotPerceptionSnapshot["keycards"] = Array.from(this.state.keycards.values(), (card) => ({
+			id: card.id,
+			color: card.color === "red" ? "red" : "blue",
+			x: card.worldX,
+			z: card.worldZ,
+			state: card.state,
+			carrierSessionId: card.carrierSessionId,
+			roomId: null as number | null,
+			range: card.range,
+		}));
+		const vaults: BotPerceptionSnapshot["vaults"] = Array.from(this.state.vaults.values(), (vault) => ({
+			id: vault.id,
+			x: vault.x,
+			z: vault.z,
+			range: vault.range,
+			isUnlocked: vault.isUnlocked,
+			isDoorOpen: vault.isDoorOpen,
+			roomId: null as number | null,
+		}));
+		const suitcases: BotPerceptionSnapshot["suitcases"] = Array.from(this.state.suitcases.values(), (suitcase) => ({
+			id: suitcase.id,
+			x: suitcase.worldX,
+			z: suitcase.worldZ,
+			state: suitcase.state,
+			carrierSessionId: suitcase.carrierSessionId,
+			containerId: suitcase.containerId,
+			roomId: null as number | null,
+			range: suitcase.range,
+		}));
+		const knownLadder = map.escapeLadder;
+		const escapeLadders: BotPerceptionSnapshot["escapeLadders"] = Array.from(
+			this.state.escapeLadders.values(),
+			(ladder) => ({
+				id: ladder.id,
+				x: knownLadder?.x ?? 0,
+				z: knownLadder?.z ?? 0,
+				range: knownLadder?.range ?? 2.1,
+				roomId: null as number | null,
+			}),
+		);
+		const traps: BotPerceptionSnapshot["traps"] = Array.from(this.state.traps.values(), (trap) => ({
+			id: trap.id,
+			ownerSessionId: trap.ownerSessionId,
+			targetKind: trap.targetKind,
+			targetId: trap.targetId,
+			status: trap.status,
+		}));
+		const trapPoints: BotPerceptionSnapshot["trapPoints"] = Array.from(
+			this.state.trapPoints.values(),
+			(point) => ({
+				id: point.id,
+				ownerSessionId: point.ownerSessionId,
+				slotIndex: point.slotIndex,
+				status: point.status,
+				trapId: point.trapId,
+			}),
+		);
+		const fileCabinets: BotPerceptionSnapshot["fileCabinets"] = Array.from(
+			this.state.fileCabinets.values(),
+			(cabinet) => ({
+				id: cabinet.id,
+				searchedMask: cabinet.searchedMask,
+				roomId: null as number | null,
+			}),
+		);
+		return {
+			timeMs: nowMs,
+			team,
+			map,
+			selfSessionId: sessionId,
+			self,
+			players,
+			doors,
+			keycards,
+			vaults,
+			suitcases,
+			escapeLadders,
+			traps,
+			trapPoints,
+			fileCabinets,
+		};
+	}
+
+	private emitInteractableEvent(
+		event: GameServerMessages["interactable_event"],
+		options?: { except?: Client },
+	): void {
+		this.broadcast("interactable_event", event, options);
+		this.enqueueBotEvent({ type: "interactable_event", message: event, timeMs: Date.now() });
+	}
+
+	private emitTickerEvent(event: GameServerMessages["ticker_event"]): void {
+		this.broadcast("ticker_event", event);
+		this.enqueueBotEvent({ type: "ticker_event", message: event, timeMs: Date.now() });
+	}
+
+	private enqueueBotEvent(event: BotEventEnvelope): void {
+		for (const bot of this.serverBots.values()) {
+			bot.runtime.enqueueEvent(event);
+		}
 	}
 
 	private tickDeadKnockback(dt: number, walls: WallRect[]) {

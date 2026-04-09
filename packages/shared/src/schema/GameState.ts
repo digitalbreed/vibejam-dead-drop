@@ -14,6 +14,7 @@ export class Player extends Schema {
 	@type("number") x: number = 0;
 	@type("number") z: number = 0;
 	@type("string") name: string = "";
+	@type("boolean") isBot: boolean = false;
 	/** RGB as a single 24-bit integer (0xrrggbb). */
 	@type("number") color: number = 0xffffff;
 	@type("boolean") isInteracting: boolean = false;
@@ -28,6 +29,10 @@ export class Player extends Schema {
 
 export class GameState extends Schema {
 	@type("string") phase: string = "lobby";
+	/** Target total players for this lobby (humans + server bots). */
+	@type("number") lobbyTargetPlayers: number = 4;
+	/** Lobby deadline in Unix epoch milliseconds; 0 means not yet armed. */
+	@type("number") lobbyDeadlineEpochMs: number = 0;
 	/** Deterministic map layout; clients mirror generation from this + `mapMaxDistance`. */
 	@type("number") mapSeed: number = 0;
 	/** Max Chebyshev grid distance from origin; controls map size / complexity. */

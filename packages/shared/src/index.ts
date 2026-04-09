@@ -23,6 +23,7 @@ export type GameClientMessages = {
 	interact: {};
 	interact_hold: { active: boolean };
 	trap_hold: { active: boolean };
+	lobby_skip_wait: {};
 };
 
 /** Server -> client transient gameplay events. */
