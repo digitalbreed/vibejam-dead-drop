@@ -119,11 +119,33 @@ export function LobbyScreen() {
 						textShadow: "0 0 24px rgba(160, 220, 255, 0.28)",
 					}}
 				>
-					Lobby
+					Staging Area
 				</h2>
 				<p style={{ margin: 0, opacity: 0.9, lineHeight: 1.45 }}>
-					Waiting up to <strong>{formatSeconds(remainingSeconds)}</strong> for human players. Remaining
-					slots will be filled with server bots before match start.
+					<span
+						style={{
+							display: "block",
+							fontFamily: "'Bebas Neue', Impact, Haettenschweiler, 'Arial Narrow Bold', sans-serif",
+							fontSize: "clamp(1.35rem, 5vw, 1.85rem)",
+							letterSpacing: "0.08em",
+							textTransform: "uppercase",
+							textAlign: "center",
+							color: "#d7e9ff",
+							textShadow: "0 0 14px rgba(125, 186, 236, 0.33)",
+						}}
+					>
+						Deployment In {formatSeconds(remainingSeconds)}
+					</span>
+					<span
+						style={{
+							display: "block",
+							marginTop: "0.35rem",
+							textAlign: "center",
+							opacity: 0.88,
+						}}
+					>
+						Waiting for human operatives.
+					</span>
 				</p>
 				<p
 					style={{
@@ -134,84 +156,113 @@ export function LobbyScreen() {
 						letterSpacing: "0.08em",
 						textTransform: "uppercase",
 						color: "#8ab4d8",
+						textAlign: "center",
 					}}
 				>
-					Players in room: <strong>{count}</strong> / <strong>{targetPlayers}</strong>
+					Operatives ready: <strong>{count}</strong> / <strong>{targetPlayers}</strong>
 				</p>
 				<div
 					style={{
 						marginTop: "0.9rem",
-						border: "2px solid #253545",
-						borderRadius: 6,
-						padding: "0.55rem 0.65rem 0.5rem",
-						maxHeight: "10rem",
-						overflowY: "auto",
-						background: "linear-gradient(180deg, #0f1a25 0%, #0f1a25 50%, #0a1218 51%, #0a1218 100%)",
+						padding: "0.1rem 0.1rem 0.1rem",
 					}}
 				>
 					{players.length === 0 ? (
-						<div style={{ opacity: 0.75 }}>No players joined yet.</div>
-					) : (
-						players.map((player) => (
-							<div
-								key={player.sessionId}
+						<div style={{ opacity: 0.75, textAlign: "center" }}>No players joined yet.</div>
+					) : null}
+					{players.map((player) => (
+						<div
+							key={player.sessionId}
+							style={{
+								display: "flex",
+								alignItems: "center",
+								justifyContent: "space-between",
+								padding: "0.45rem 0.55rem",
+								gap: "0.75rem",
+								border: "2px solid #253545",
+								borderRadius: 6,
+								background: "linear-gradient(180deg, #0f1a25 0%, #0f1a25 50%, #0a1218 51%, #0a1218 100%)",
+								marginBottom: "0.42rem",
+							}}
+						>
+							<span
 								style={{
-									display: "flex",
+									display: "inline-flex",
 									alignItems: "center",
-									justifyContent: "space-between",
-									padding: "0.22rem 0.1rem",
-									gap: "0.75rem",
+									gap: "0.5rem",
+									overflow: "hidden",
+									textOverflow: "ellipsis",
+									whiteSpace: "nowrap",
 								}}
 							>
 								<span
+									aria-hidden
 									style={{
-										display: "inline-flex",
-										alignItems: "center",
-										gap: "0.5rem",
-										overflow: "hidden",
-										textOverflow: "ellipsis",
-										whiteSpace: "nowrap",
+										width: 10,
+										height: 10,
+										borderRadius: "50%",
+										background: colorIntToHex(player.color),
+										border: "1px solid rgba(220, 230, 240, 0.55)",
+										boxShadow: "0 0 0 1px rgba(6, 10, 16, 0.65)",
+										flexShrink: 0,
 									}}
-								>
-									<span
-										aria-hidden
-										style={{
-											width: 10,
-											height: 10,
-											borderRadius: "50%",
-											background: colorIntToHex(player.color),
-											border: "1px solid rgba(220, 230, 240, 0.55)",
-											boxShadow: "0 0 0 1px rgba(6, 10, 16, 0.65)",
-											flexShrink: 0,
-										}}
-									/>
-									{player.name}
-								</span>
-								{player.isBot ? <span title="Server bot">🤖</span> : <span />}
-							</div>
-						))
-					)}
+								/>
+								{player.name}
+							</span>
+							{player.isBot ? <span title="Server bot">🤖</span> : <span />}
+						</div>
+					))}
+					{Array.from({ length: Math.max(0, targetPlayers - count) }, (_, index) => (
+						<div
+							key={`empty-slot-${index}`}
+							style={{
+								display: "flex",
+								alignItems: "center",
+								justifyContent: "space-between",
+								padding: "0.45rem 0.55rem",
+								gap: "0.75rem",
+								opacity: 0.4,
+								border: "2px solid rgba(58, 76, 96, 0.75)",
+								borderRadius: 6,
+								background: "linear-gradient(180deg, rgba(15,26,37,0.65) 0%, rgba(10,18,24,0.62) 100%)",
+								marginBottom: "0.42rem",
+							}}
+						>
+							<span
+								style={{
+									display: "inline-flex",
+									alignItems: "center",
+									gap: "0.5rem",
+									overflow: "hidden",
+									textOverflow: "ellipsis",
+									whiteSpace: "nowrap",
+								}}
+							>
+								<span
+									aria-hidden
+									style={{
+										width: 10,
+										height: 10,
+										borderRadius: "50%",
+										background: "rgba(180, 196, 214, 0.15)",
+										border: "1px solid rgba(180, 196, 214, 0.4)",
+										boxShadow: "0 0 0 1px rgba(6, 10, 16, 0.45)",
+										flexShrink: 0,
+									}}
+								/>
+								Empty Slot
+							</span>
+							<span />
+						</div>
+					))}
 				</div>
 				<div style={{ marginTop: "1rem", display: "flex", justifyContent: "center" }}>
 					<button
 						type="button"
+						className="comic-agent-button"
 						onClick={() => room?.send("lobby_skip_wait", {})}
-						style={{
-							pointerEvents: "auto",
-							marginTop: "0.2rem",
-							padding: "0.8rem 1.5rem",
-							borderRadius: 8,
-							border: "2px solid #3a5575",
-							background: "linear-gradient(180deg, #2a4560 0%, #2a4560 50%, #1e3550 51%, #1e3550 100%)",
-							color: "#e8eef5",
-							textTransform: "uppercase",
-							letterSpacing: "0.08em",
-							fontFamily: "'Bebas Neue', Impact, Haettenschweiler, 'Arial Narrow Bold', sans-serif",
-							fontSize: "1.15rem",
-							cursor: "pointer",
-						}}
 					>
-						Start Now (Fill with Bots)
+						Deploy with Bots
 					</button>
 				</div>
 			</div>

@@ -234,7 +234,7 @@ export function TitleScreen({ onJoin }: TitleScreenProps) {
 						}}
 					/>
 					<span style={{ fontSize: "0.75rem", color: "#607890", fontStyle: "italic" }}>
-						Auto-assigned if empty
+						<strong>Optional:</strong> auto-assigned if empty
 					</span>
 				</label>
 				<label style={{ display: "flex", flexDirection: "column", gap: "0.3rem", textAlign: "left" }}>
@@ -263,11 +263,12 @@ export function TitleScreen({ onJoin }: TitleScreenProps) {
 						}}
 					/>
 					<span style={{ fontSize: "0.75rem", color: "#607890", fontStyle: "italic" }}>
-						Joining next best public lobby if empty
+					<strong>Optional:</strong> next best public lobby if empty
 					</span>
 				</label>
 				<button
 					type="button"
+					className="comic-agent-button"
 					onClick={() =>
 						{
 							const trimmedOperatorName = operatorName.trim();
@@ -284,19 +285,6 @@ export function TitleScreen({ onJoin }: TitleScreenProps) {
 							});
 						}
 					}
-					style={{
-						marginTop: "0.5rem",
-						padding: "0.8rem 1.5rem",
-						borderRadius: "8px",
-						border: "2px solid #3a5575",
-						background: "linear-gradient(180deg, #2a4560 0%, #2a4560 50%, #1e3550 51%, #1e3550 100%)",
-						color: "#e8eef5",
-						textTransform: "uppercase",
-						letterSpacing: "0.08em",
-						fontFamily: "'Bebas Neue', Impact, Haettenschweiler, 'Arial Narrow Bold', sans-serif",
-						fontSize: "1.15rem",
-						cursor: "pointer",
-					}}
 				>
 					Join game
 				</button>
