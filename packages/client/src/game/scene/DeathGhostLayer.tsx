@@ -103,27 +103,35 @@ function GhostSprite({
 			<group ref={visualRef}>
 			<mesh position={[0, 0.82, 0]}>
 				<coneGeometry args={[0.42, 1.6, 10]} />
-				<meshToonMaterial color={colorObj} emissive={colorObj} emissiveIntensity={0.28} transparent opacity={0.35} depthWrite={false} />
+				<meshToonMaterial
+					color={colorObj}
+					emissive={colorObj}
+					emissiveIntensity={0.28}
+					transparent
+					opacity={0.35}
+					depthWrite={false}
+					depthTest={false}
+				/>
 			</mesh>
 			<group position={[0, 1.02, 0.3]}>
 				<group ref={leftEyeRef} position={[-0.13, 0, -0.05]}>
 					<mesh>
 						<sphereGeometry args={[0.12, 18, 18]} />
-						<meshToonMaterial color="#fffaf0" transparent opacity={0.42} depthWrite={false} />
+						<meshToonMaterial color="#fffaf0" transparent opacity={0.42} depthWrite={false} depthTest={false} />
 					</mesh>
 					<mesh position={[0.01, -0.01, 0.075]}>
 						<sphereGeometry args={[0.048, 14, 14]} />
-						<meshToonMaterial color="#111111" transparent opacity={0.56} depthWrite={false} />
+						<meshToonMaterial color="#111111" transparent opacity={0.56} depthWrite={false} depthTest={false} />
 					</mesh>
 				</group>
 				<group ref={rightEyeRef} position={[0.13, 0, -0.05]}>
 					<mesh>
 						<sphereGeometry args={[0.12, 18, 18]} />
-						<meshToonMaterial color="#fffaf0" transparent opacity={0.42} depthWrite={false} />
+						<meshToonMaterial color="#fffaf0" transparent opacity={0.42} depthWrite={false} depthTest={false} />
 					</mesh>
 					<mesh position={[-0.01, -0.01, 0.075]}>
 						<sphereGeometry args={[0.048, 14, 14]} />
-						<meshToonMaterial color="#111111" transparent opacity={0.56} depthWrite={false} />
+						<meshToonMaterial color="#111111" transparent opacity={0.56} depthWrite={false} depthTest={false} />
 					</mesh>
 				</group>
 			</group>
@@ -147,12 +155,14 @@ export function DeathGhostLayer({
 	localSessionId,
 	localCameraAttach,
 	cameraAnchorRef,
+	localDeathStartedMs,
 }: {
 	players: GhostPlayerSnapshot[];
 	deathStartedAtMsById: ReadonlyMap<string, number>;
 	localSessionId?: string;
 	localCameraAttach: boolean;
 	cameraAnchorRef: MutableRefObject<Vector3>;
+	localDeathStartedMs?: number | null;
 }) {
 	return (
 		<group>
@@ -160,11 +170,13 @@ export function DeathGhostLayer({
 				if (player.isAlive) {
 					return null;
 				}
-				const spawnedAt = deathStartedAtMsById.get(player.id);
+				const isLocalHumanGhost = player.id === localSessionId;
+				const spawnedAt =
+					deathStartedAtMsById.get(player.id) ??
+					(isLocalHumanGhost ? (localDeathStartedMs ?? undefined) : undefined);
 				if (!spawnedAt) {
 					return null;
 				}
-				const isLocalHumanGhost = player.id === localSessionId;
 				if (!isLocalHumanGhost) {
 					const elapsedMs = performance.now() - spawnedAt;
 					if (elapsedMs > REMOTE_FADE_OUT_MS) {

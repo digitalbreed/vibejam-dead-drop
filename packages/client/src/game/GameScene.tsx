@@ -286,9 +286,11 @@ function SceneContent({
 	const [visitedAreas, setVisitedAreas] = useState<Set<string>>(() => new Set(["Start Room"]));
 	const [explosions, setExplosions] = useState<ExplosionFx[]>([]);
 	const [deathStartedAtMsById, setDeathStartedAtMsById] = useState<Map<string, number>>(() => new Map());
+	const [localDeathStartedMs, setLocalDeathStartedMs] = useState<number | null>(null);
 	const [localGhostFollowCamera, setLocalGhostFollowCamera] = useState(false);
 	const explosionIdRef = useRef(0);
 	const previousAliveByIdRef = useRef(new Map<string, boolean>());
+	const previousLocalAliveRef = useRef<boolean>(true);
 	const audioContextRef = useRef<AudioContext | null>(null);
 
 	useEffect(() => {
@@ -620,6 +622,17 @@ function SceneContent({
 		previousAliveByIdRef.current = nextAlive;
 	}, [players]);
 
+	useEffect(() => {
+		const wasAlive = previousLocalAliveRef.current;
+		if (wasAlive && !localIsAlive) {
+			setLocalDeathStartedMs(performance.now());
+		}
+		if (!wasAlive && localIsAlive) {
+			setLocalDeathStartedMs(null);
+		}
+		previousLocalAliveRef.current = localIsAlive;
+	}, [localIsAlive]);
+
 	useFrame((_, dt) => {
 		const sessionId = room?.sessionId;
 		const local = sessionId ? getPlayerBySessionId(players, sessionId) : undefined;
@@ -861,6 +874,7 @@ function SceneContent({
 				localSessionId={localSessionId}
 				localCameraAttach={localGhostFollowCamera}
 				cameraAnchorRef={spectatorTargetRef}
+				localDeathStartedMs={localDeathStartedMs}
 			/>
 			{list.map((p) =>
 				p.isLocal ? (

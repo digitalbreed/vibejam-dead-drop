@@ -55,16 +55,83 @@ function ConnectedFlow() {
 
 	if (error) {
 		return (
-			<div style={{ padding: "2rem", color: "#f88" }}>
-				<p style={{ margin: 0 }}>Connection error: {error.message}</p>
+			<div
+				style={{
+					position: "fixed",
+					inset: 0,
+					display: "flex",
+					alignItems: "center",
+					justifyContent: "center",
+					padding: "2rem 1.2rem",
+					background: "radial-gradient(ellipse at center, rgba(15,25,40,0.92) 0%, rgba(8,12,18,0.96) 100%)",
+				}}
+			>
+				<div
+					className="title-panel"
+					style={{
+						width: "min(32rem, 94vw)",
+						padding: "1.4rem 1.5rem",
+						border: "3px solid #1a3045",
+						background: "linear-gradient(165deg, transparent 58%, rgba(20,40,60,0.5) 58%), #0c1a2a",
+						boxShadow: "4px 4px 0 #050a10, 8px 8px 0 rgba(0,0,0,0.3)",
+						textAlign: "center",
+					}}
+				>
+					<p
+						style={{
+							margin: 0,
+							fontFamily: "'Bebas Neue', Impact, Haettenschweiler, 'Arial Narrow Bold', sans-serif",
+							fontSize: "clamp(1.3rem, 5.2vw, 1.9rem)",
+							letterSpacing: "0.07em",
+							textTransform: "uppercase",
+							color: "#ff8f8f",
+						}}
+					>
+						Connection Error
+					</p>
+					<p style={{ margin: "0.5rem 0 0", color: "#f5c2c2", opacity: 0.95 }}>{error.message}</p>
+				</div>
 			</div>
 		);
 	}
 
 	if (isConnecting || !room) {
 		return (
-			<div style={{ padding: "2rem", opacity: 0.9 }}>
-				<p style={{ margin: 0 }}>Connecting to matchmaker…</p>
+			<div
+				style={{
+					position: "fixed",
+					inset: 0,
+					display: "flex",
+					alignItems: "center",
+					justifyContent: "center",
+					padding: "2rem 1.2rem",
+					background: "radial-gradient(ellipse at center, rgba(15,25,40,0.92) 0%, rgba(8,12,18,0.96) 100%)",
+				}}
+			>
+				<div
+					className="title-panel"
+					style={{
+						width: "min(30rem, 94vw)",
+						padding: "1.35rem 1.45rem",
+						border: "3px solid #1a3045",
+						background: "linear-gradient(165deg, transparent 58%, rgba(20,40,60,0.5) 58%), #0c1a2a",
+						boxShadow: "4px 4px 0 #050a10, 8px 8px 0 rgba(0,0,0,0.3)",
+						textAlign: "center",
+					}}
+				>
+					<p
+						style={{
+							margin: 0,
+							fontFamily: "'Bebas Neue', Impact, Haettenschweiler, 'Arial Narrow Bold', sans-serif",
+							fontSize: "clamp(1.3rem, 5.1vw, 1.8rem)",
+							letterSpacing: "0.07em",
+							textTransform: "uppercase",
+							color: "#cfe7ff",
+						}}
+					>
+						Connecting to Matchmaker...
+					</p>
+				</div>
 			</div>
 		);
 	}
@@ -109,9 +176,9 @@ export default function App() {
 					GameState,
 				)
 				.then((room) => {
-				prepareGameRoom(room);
-				return room;
-			}),
+					prepareGameRoom(room);
+					return room;
+				}),
 		[joinParams.gameCode, joinParams.operatorName, mapMaxDistance],
 	);
 

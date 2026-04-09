@@ -41,6 +41,7 @@ export function GameScreen({
 	onToggleDevBotsVisibility,
 	onToggleBotsPaused,
 }: GameScreenProps) {
+	const isDevMode = import.meta.env.DEV;
 	const { room } = useRoom();
 	const phase = useRoomState((s) => s.phase);
 	const players = useRoomState((s) => s.players);
@@ -223,21 +224,20 @@ export function GameScreen({
 
 	return (
 		<div style={{ width: "100%", height: "100%", minHeight: "100vh" }}>
-			<div
-				style={{
-					position: "fixed",
-					bottom: 12,
-					left: 12,
-					zIndex: 2,
-					padding: "0.35rem 0.6rem",
-					borderRadius: 6,
-					fontSize: "0.85rem",
-					background: "rgba(10, 14, 22, 0.75)",
-					border: "1px solid rgba(90, 120, 170, 0.35)",
-				}}
-			>
-				<div>Seed: {mapSeed ?? 0}</div>
-				<div>{areaLabel}</div>
+			{isDevMode ? (
+				<div
+					style={{
+						position: "fixed",
+						bottom: 12,
+						left: 12,
+						zIndex: 2,
+						padding: "0.35rem 0.6rem",
+						borderRadius: 6,
+						fontSize: "0.85rem",
+						background: "rgba(10, 14, 22, 0.75)",
+						border: "1px solid rgba(90, 120, 170, 0.35)",
+					}}
+				>
 				<button
 					type="button"
 					onClick={() => setRevealAll((current) => !current)}
@@ -305,11 +305,12 @@ export function GameScreen({
 							color: "#dfe7f2",
 							cursor: "pointer",
 						}}
-					>
-						{botsPaused ? "Resume Bots" : "Pause Bots"}
-					</button>
+				>
+					{botsPaused ? "Resume Bots" : "Pause Bots"}
+				</button>
 				) : null}
-			</div>
+				</div>
+			) : null}
 			<div
 				style={{
 					position: "fixed",
@@ -326,7 +327,7 @@ export function GameScreen({
 					whiteSpace: "nowrap",
 				}}
 			>
-				FPS: {fps} PING: {pingMs === null ? "--" : `${pingMs} ms`}
+				FPS: {fps} PING: {pingMs === null ? "--" : `${pingMs} ms`} SEED: {mapSeed ?? 0}
 			</div>
 			<div
 				style={{
