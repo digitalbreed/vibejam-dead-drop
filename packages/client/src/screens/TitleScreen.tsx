@@ -263,7 +263,7 @@ export function TitleScreen({ onJoin }: TitleScreenProps) {
 						}}
 					/>
 					<span style={{ fontSize: "0.75rem", color: "#607890", fontStyle: "italic" }}>
-					<strong>Optional:</strong> next best public lobby if empty
+					<strong>Optional:</strong> enter a specific room code, or leave empty for next best public lobby
 					</span>
 				</label>
 				<button

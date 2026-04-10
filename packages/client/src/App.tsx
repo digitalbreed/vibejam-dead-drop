@@ -16,6 +16,55 @@ type JoinParams = {
 	gameCode: string;
 };
 
+function normalizeGameCode(value: string): string {
+	return value
+		.replace(/\s+/g, "")
+		.trim()
+		.toUpperCase()
+		.replace(/[^A-Z0-9_-]/g, "")
+		.slice(0, 24);
+}
+
+function isNoRoomsFoundForCriteriaError(rawError: unknown): boolean {
+	const text = String((rawError as { message?: unknown })?.message ?? rawError ?? "").toLowerCase();
+	return text.includes("no rooms found with provided criteria");
+}
+
+function buildJoinErrorMessage(rawError: unknown, gameCode: string): string {
+	const fallback = "Unable to join game. Please try again.";
+	const text = String((rawError as { message?: unknown })?.message ?? rawError ?? "");
+	const normalized = text.toLowerCase();
+	const codeLabel = gameCode.trim();
+
+	if (normalized.includes("locked")) {
+		return codeLabel
+			? `Room "${codeLabel}" is already full or already running.`
+			: "This room is already full or already running.";
+	}
+	if (normalized.includes("already active")) {
+		return codeLabel
+			? `Room "${codeLabel}" is already full or already running.`
+			: "This room is already full or already running.";
+	}
+	if (normalized.includes("max clients")) {
+		return codeLabel
+			? `Room "${codeLabel}" is already full.`
+			: "This room is already full.";
+	}
+	if (normalized.includes("already full")) {
+		return codeLabel
+			? `Room "${codeLabel}" is already full.`
+			: "This room is already full.";
+	}
+	if (normalized.includes("room not found")) {
+		return codeLabel
+			? `No room found for code "${codeLabel}". Check the code and try again.`
+			: fallback;
+	}
+
+	return text.trim().length > 0 ? text : fallback;
+}
+
 const devBotsEnabled =
 	import.meta.env.DEV &&
 	(import.meta.env.VITE_DEV_BOTS_ENABLED ?? "1").trim() !== "0";
@@ -164,21 +213,33 @@ export default function App() {
 		[],
 	);
 	const connectMainRoom = useCallback(
-		() =>
-			colyseusClient
-				.joinOrCreate(
-					"game_room",
-					{
-						mapMaxDistance,
-						operatorName: joinParams.operatorName,
-						gameCode: joinParams.gameCode,
-					},
-					GameState,
-				)
-				.then((room) => {
-					prepareGameRoom(room);
-					return room;
-				}),
+		async () => {
+			const gameCode = normalizeGameCode(joinParams.gameCode);
+			try {
+				const options = {
+					mapMaxDistance,
+					operatorName: joinParams.operatorName,
+					gameCode,
+				};
+				let room;
+				if (gameCode.length > 0) {
+					try {
+						room = await colyseusClient.join("game_room", options, GameState);
+					} catch (joinError) {
+						if (!isNoRoomsFoundForCriteriaError(joinError)) {
+							throw joinError;
+						}
+						room = await colyseusClient.create("game_room", options, GameState);
+					}
+				} else {
+					room = await colyseusClient.joinOrCreate("game_room", options, GameState);
+				}
+				prepareGameRoom(room);
+				return room;
+			} catch (error) {
+				throw new Error(buildJoinErrorMessage(error, gameCode));
+			}
+		},
 		[joinParams.gameCode, joinParams.operatorName, mapMaxDistance],
 	);
 

@@ -29,6 +29,8 @@ export class Player extends Schema {
 
 export class GameState extends Schema {
 	@type("string") phase: string = "lobby";
+	/** Human-friendly join code associated with this room. */
+	@type("string") gameCode: string = "";
 	/** Target total players for this lobby (humans + server bots). */
 	@type("number") lobbyTargetPlayers: number = 4;
 	/** Lobby deadline in Unix epoch milliseconds; 0 means not yet armed. */

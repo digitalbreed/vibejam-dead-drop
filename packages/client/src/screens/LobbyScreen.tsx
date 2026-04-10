@@ -38,6 +38,7 @@ function colorIntToHex(color: number): string {
 export function LobbyScreen() {
 	const { room } = useRoom();
 	const phase = useRoomState((s) => s.phase);
+	const gameCode = useRoomState((s) => (typeof s?.gameCode === "string" ? s.gameCode : "")) ?? "";
 	const playerCount = useRoomState((s) => Number(s?.players?.size ?? 0)) ?? 0;
 	const targetPlayers = useRoomState((s) => Number(s?.lobbyTargetPlayers ?? 4)) ?? 4;
 	const lobbyDeadlineEpochMs = useRoomState((s) => Number(s?.lobbyDeadlineEpochMs ?? 0)) ?? 0;
@@ -146,6 +147,20 @@ export function LobbyScreen() {
 					>
 						Waiting for human operatives.
 					</span>
+				</p>
+				<p
+					style={{
+						margin: "0.7rem 0 0",
+						opacity: 0.95,
+						fontFamily: "'Bebas Neue', Impact, Haettenschweiler, 'Arial Narrow Bold', sans-serif",
+						fontSize: "1.05rem",
+						letterSpacing: "0.08em",
+						textTransform: "uppercase",
+						color: "#9ed0f0",
+						textAlign: "center",
+					}}
+				>
+					Join code: <strong>{gameCode || room?.roomId || "N/A"}</strong>
 				</p>
 				<p
 					style={{

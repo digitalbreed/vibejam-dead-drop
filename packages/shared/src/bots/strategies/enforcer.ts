@@ -29,6 +29,20 @@ function shouldTrapVault(context: BotDecisionContext): boolean {
 	return isAloneInRoom(context, self.roomId);
 }
 
+function hasOwnActiveVaultTrap(context: BotDecisionContext, vaultId: string): boolean {
+	const self = context.snapshot.self;
+	if (!self) {
+		return false;
+	}
+	return context.snapshot.traps.some(
+		(trap) =>
+			trap.ownerSessionId === self.sessionId &&
+			trap.status === "active" &&
+			trap.targetKind === "vault" &&
+			trap.targetId === vaultId,
+	);
+}
+
 function trapOuterRoomDoorway(context: BotDecisionContext) {
 	const self = context.snapshot.self;
 	if (!self || self.roomId === null) {
@@ -95,6 +109,15 @@ export const EnforcerStrategy: BotRoleStrategy = {
 
 		const carried = playerCarriedKeycard(context);
 		if (carried) {
+			if (vault && hasOwnActiveVaultTrap(context, vault.id)) {
+				return {
+					stateKey: "enforcer:drop_keycard_vault_blocked",
+					moveVector: null,
+					interactPress: true,
+					targetLabel: `keycard:${carried.id}`,
+					pauseAfterTransition: true,
+				};
+			}
 			if (self.roomId !== null && isAloneInRoom(context, self.roomId)) {
 				if (inActionRange(context, carried)) {
 					return {

@@ -11,7 +11,7 @@ const clientDistDir = path.resolve(serverBuildDir, "../../client/dist");
 
 const server = defineServer({
 	rooms: {
-		game_room: defineRoom(GameRoom),
+		game_room: defineRoom(GameRoom).filterBy(["gameCode"]),
 	},
 	express: (app) => {
 		app.use(cors({ origin: true, credentials: true }));

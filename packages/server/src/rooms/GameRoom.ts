@@ -1,4 +1,4 @@
-import { Room, Client } from "colyseus";
+import { Room, Client, ErrorCode, ServerError, matchMaker } from "colyseus";
 import {
 	buildMapAwareness,
 	buildVaultCollisionWalls,
@@ -65,6 +65,7 @@ const DEAD_KNOCKBACK_MIN_DISTANCE = DEAD_KNOCKBACK_MAX_DISTANCE * 0.72;
 const DEAD_KNOCKBACK_SPEED = 11.5;
 const TRAP_EXPLOSION_AUDIO_RANGE = Number(process.env.TRAP_EXPLOSION_AUDIO_RANGE ?? 26);
 const MAX_OPERATOR_NAME_LENGTH = 24;
+const MAX_GAME_CODE_LENGTH = 24;
 const AGENT_PREFIXES = [
 	"Ghost",
 	"Phantom",
@@ -186,6 +187,17 @@ type JoinOptions = {
 	gameCode?: string;
 };
 
+function normalizeGameCode(raw: unknown): string {
+	if (typeof raw !== "string") {
+		return "";
+	}
+	const compact = raw.replace(/\s+/g, "").trim().toUpperCase();
+	if (!compact) {
+		return "";
+	}
+	return compact.replace(/[^A-Z0-9_-]/g, "").slice(0, MAX_GAME_CODE_LENGTH);
+}
+
 function randomItem<T>(list: readonly T[]): T {
 	return list[Math.floor(Math.random() * list.length)]!;
 }
@@ -287,7 +299,18 @@ export class GameRoom extends Room {
 		},
 	};
 
-	onCreate(options: JoinOptions) {
+	async onCreate(options: JoinOptions) {
+		const gameCode = normalizeGameCode(options?.gameCode);
+		if (gameCode) {
+			const existing = await matchMaker.query({ name: this.roomName, gameCode });
+			if (existing.length > 0) {
+				throw new ServerError(
+					ErrorCode.MATCHMAKE_INVALID_CRITERIA,
+					`room code "${gameCode}" is already active`,
+				);
+			}
+		}
+		this.state.gameCode = gameCode;
 		const targetPlayers = Math.max(1, Math.min(16, Math.floor(TARGET_PLAYERS || 4)));
 		this.state.lobbyTargetPlayers = targetPlayers;
 		this.state.lobbyDeadlineEpochMs = 0;
