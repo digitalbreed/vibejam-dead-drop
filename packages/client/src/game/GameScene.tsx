@@ -8,6 +8,7 @@ import {
 	buildEscapeLadderCollisionWalls,
 	buildVaultCollisionWalls,
 	CELL_SIZE,
+	ROOM_HEIGHT,
 	type GameServerMessages,
 	generateEscapeLadderPlacement,
 	generateFileCabinetPlacements,
@@ -37,6 +38,10 @@ import { ComicExplosionEffect, EXPLOSION_FX_DURATION_MS } from "./scene/ComicExp
 import { DeathGhostLayer } from "./scene/DeathGhostLayer";
 import { MovementInput } from "./scene/MovementInput";
 import { PlayerVisual, type KeycardColor } from "./scene/PlayerVisual";
+import { useSoftRevealProgress } from "./scene/useSoftRevealProgress";
+import { RooftopLayer } from "./rooftop/RooftopLayer";
+import { setPassthroughSuppressed } from "./passthrough";
+import { HelicopterLayer } from "./endSequence/HelicopterLayer";
 
 const MOVE_SPEED = 12;
 const COMPASS_LABELS = ["East", "Northeast", "North", "Northwest", "West", "Southwest", "South", "Southeast"] as const;
@@ -49,12 +54,18 @@ export type PassthroughKind = "none" | "frontWall";
 const DEAD_REVEAL_START_DELAY_MS = 3000;
 const DEAD_REVEAL_STEP_MS = 1000;
 const DEAD_CAMERA_FOLLOW_SPEED_THRESHOLD = 0.22;
+const ROOF_TOP_Y = ROOM_HEIGHT + 0.08 + 0.72;
+const ESCAPE_CAMERA_CLIMB_HEIGHT = 3.05;
 
 type ExplosionFx = {
 	id: number;
 	x: number;
 	z: number;
 	spawnMs: number;
+};
+
+type EscapeSequenceMessage = GameServerMessages["escape_sequence_event"] & {
+	active: boolean;
 };
 
 
@@ -278,6 +289,8 @@ function SceneContent({
 	const inputRef = useRef(new Vector2(0, 0));
 	const localVisualRef = useRef(new Vector3(0, 0.5, 0));
 	const spectatorTargetRef = useRef(new Vector3(0, 0.5, 0));
+	const escapeCameraTargetRef = useRef(new Vector3(0, 0.5, 0));
+	const localEscapeCameraRef = useRef(new Vector3(0, 0.5, 0));
 	const deadStateRef = useRef(false);
 	const deadCameraFollowRef = useRef(false);
 	const authoritativeRef = useRef(new Vector3());
@@ -288,6 +301,13 @@ function SceneContent({
 	const [deathStartedAtMsById, setDeathStartedAtMsById] = useState<Map<string, number>>(() => new Map());
 	const [localDeathStartedMs, setLocalDeathStartedMs] = useState<number | null>(null);
 	const [localGhostFollowCamera, setLocalGhostFollowCamera] = useState(false);
+	const [escapeSequence, setEscapeSequence] = useState<EscapeSequenceMessage | null>(null);
+	const [heliRunId, setHeliRunId] = useState(0);
+	const [heliActive, setHeliActive] = useState(false);
+	const [heliActorSessionId, setHeliActorSessionId] = useState<string | null>(null);
+	const [coveredActorSessionId, setCoveredActorSessionId] = useState<string | null>(null);
+	const [extractedActorSessionId, setExtractedActorSessionId] = useState<string | null>(null);
+	const [heliTarget, setHeliTarget] = useState<{ x: number; z: number } | null>(null);
 	const explosionIdRef = useRef(0);
 	const previousAliveByIdRef = useRef(new Map<string, boolean>());
 	const previousLocalAliveRef = useRef<boolean>(true);
@@ -432,6 +452,38 @@ function SceneContent({
 	}, [audioEnabled, players, room]);
 
 	useEffect(() => {
+		if (!room) {
+			return;
+		}
+		return room.onMessage("escape_sequence_event", (message: GameServerMessages["escape_sequence_event"]) => {
+			setEscapeSequence({
+				...message,
+				active: true,
+			});
+			escapeCameraTargetRef.current.set(message.cameraX, 0.5, message.cameraZ);
+			if (message.stage === "complete") {
+				setHeliActorSessionId(message.actorSessionId);
+				setHeliRunId((current) => current + 1);
+				setHeliActive(true);
+				setHeliTarget(null);
+			} else {
+				setHeliActive(false);
+				setHeliActorSessionId(null);
+				setCoveredActorSessionId(null);
+				setExtractedActorSessionId(null);
+				setHeliTarget(null);
+			}
+		});
+	}, [room]);
+
+	useEffect(() => {
+		setPassthroughSuppressed(!!escapeSequence?.active);
+		return () => {
+			setPassthroughSuppressed(false);
+		};
+	}, [escapeSequence?.active]);
+
+	useEffect(() => {
 		if (explosions.length === 0) {
 			return;
 		}
@@ -487,7 +539,6 @@ function SceneContent({
 		[dynamicWalls, escapeLadderWalls, fileCabinetWalls, staticWalls],
 	);
 	const areaInfo = useMemo(() => buildAreaInfo(layout), [layout]);
-	const [deadRevealAreaCount, setDeadRevealAreaCount] = useState(0);
 	const spectatorAreaOrder = useMemo(() => {
 		const unique = new Set<string>();
 		for (const areaLabel of areaInfo.labelByCell.values()) {
@@ -495,9 +546,22 @@ function SceneContent({
 		}
 		return [...unique].filter((label) => label !== currentArea).sort((a, b) => a.localeCompare(b));
 	}, [areaInfo.labelByCell, currentArea]);
+	const localSessionId = room?.sessionId;
+	const escapeSpectatorActive = !!(
+		escapeSequence?.active &&
+		localSessionId &&
+		escapeSequence.actorSessionId !== localSessionId
+	);
+	const softRevealActive = spectatorReveal || escapeSpectatorActive;
+	const softRevealAreaCount = useSoftRevealProgress({
+		active: softRevealActive,
+		totalCount: spectatorAreaOrder.length,
+		startDelayMs: DEAD_REVEAL_START_DELAY_MS,
+		stepMs: DEAD_REVEAL_STEP_MS,
+	});
 	const spectatorRevealedAreas = useMemo(
-		() => new Set(spectatorAreaOrder.slice(0, Math.min(deadRevealAreaCount, spectatorAreaOrder.length))),
-		[deadRevealAreaCount, spectatorAreaOrder],
+		() => new Set(spectatorAreaOrder.slice(0, Math.min(softRevealAreaCount, spectatorAreaOrder.length))),
+		[softRevealAreaCount, spectatorAreaOrder],
 	);
 	const mapBounds = useMemo(() => {
 		let minX = Infinity;
@@ -515,12 +579,25 @@ function SceneContent({
 		const pad = CELL_SIZE * 1.5;
 		return { minX: minX - pad, maxX: maxX + pad, minZ: minZ - pad, maxZ: maxZ + pad };
 	}, [layout.cells]);
-	const localSessionId = room?.sessionId;
 	const localPlayerSnapshot = localSessionId ? getPlayerBySessionId(players, localSessionId) : undefined;
 	const localIsAlive = localPlayerSnapshot?.isAlive !== false;
-	const deadRevealComplete = deadRevealAreaCount >= spectatorAreaOrder.length;
-	const revealAllNow = revealAll || spectatorReveal;
-	const spectatorGlobalActive = spectatorReveal && deadRevealComplete;
+	const localEscapeStyle =
+		typeof localPlayerSnapshot?.interactionStyle === "string" ? localPlayerSnapshot.interactionStyle : "";
+	const localEscapeProgress =
+		typeof localPlayerSnapshot?.interactionDurationMs === "number" &&
+		localPlayerSnapshot.interactionDurationMs > 0 &&
+		typeof localPlayerSnapshot?.interactionElapsedMs === "number"
+			? Math.max(0, Math.min(1, localPlayerSnapshot.interactionElapsedMs / localPlayerSnapshot.interactionDurationMs))
+			: 0;
+	const localEscapeCameraActive =
+		localIsAlive &&
+		(localEscapeStyle === "escape_align" ||
+			localEscapeStyle === "escape_climb" ||
+			localEscapeStyle === "escape_roof_step" ||
+			localEscapeStyle === "escape_complete");
+	const deadRevealComplete = softRevealAreaCount >= spectatorAreaOrder.length;
+	const revealAllNow = revealAll || softRevealActive;
+	const spectatorGlobalActive = softRevealActive && deadRevealComplete;
 	const fogByCell = useMemo(
 		() =>
 			buildFogByCellWithForcedVisible(
@@ -529,52 +606,16 @@ function SceneContent({
 				visitedAreas,
 				revealAllNow,
 				null,
-			),
+		),
 		[areaInfo, currentArea, revealAllNow, visitedAreas],
 	);
-	const cameraTargetRef = localIsAlive ? localVisualRef : spectatorTargetRef;
-
-	useEffect(() => {
-		if (!spectatorReveal) {
-			setDeadRevealAreaCount(0);
-			return;
-		}
-		setDeadRevealAreaCount(0);
-		let cancelled = false;
-		let timerId: number | null = null;
-
-		const scheduleNextStep = () => {
-			if (cancelled) {
-				return;
-			}
-			timerId = window.setTimeout(() => {
-				if (cancelled) {
-					return;
-				}
-				setDeadRevealAreaCount((current) => {
-					const next = Math.min(spectatorAreaOrder.length, current + 1);
-					if (next < spectatorAreaOrder.length) {
-						scheduleNextStep();
-					}
-					return next;
-				});
-			}, DEAD_REVEAL_STEP_MS);
-		};
-
-		timerId = window.setTimeout(() => {
-			if (cancelled || spectatorAreaOrder.length === 0) {
-				return;
-			}
-			scheduleNextStep();
-		}, DEAD_REVEAL_START_DELAY_MS);
-
-		return () => {
-			cancelled = true;
-			if (timerId !== null) {
-				window.clearTimeout(timerId);
-			}
-		};
-	}, [spectatorAreaOrder.length, spectatorReveal]);
+	const cameraTargetRef = escapeSpectatorActive
+		? escapeCameraTargetRef
+		: localEscapeCameraActive
+			? localEscapeCameraRef
+		: localIsAlive
+			? localVisualRef
+			: spectatorTargetRef;
 
 	useEffect(() => {
 		const sessionId = room?.sessionId;
@@ -582,6 +623,7 @@ function SceneContent({
 		if (!sessionId || !local) {
 			localVisualRef.current.set(0, 0.5, 0);
 			spectatorTargetRef.current.set(0, 0.5, 0);
+			escapeCameraTargetRef.current.set(0, 0.5, 0);
 			return;
 		}
 		if (localVisualRef.current.lengthSq() === 0) {
@@ -590,7 +632,10 @@ function SceneContent({
 		if (local.isAlive !== false) {
 			spectatorTargetRef.current.set(local.x, 0.5, local.z);
 		}
-	}, [players, room]);
+		if (!escapeSequence) {
+			escapeCameraTargetRef.current.set(local.x, 0.5, local.z);
+		}
+	}, [escapeSequence, players, room]);
 
 	useEffect(() => {
 		const entries: Array<[string, any]> =
@@ -637,6 +682,22 @@ function SceneContent({
 		const sessionId = room?.sessionId;
 		const local = sessionId ? getPlayerBySessionId(players, sessionId) : undefined;
 		if (!sessionId || !local) {
+			return;
+		}
+		if (localEscapeCameraActive) {
+			let yOffset = 0;
+			if (localEscapeStyle === "escape_climb") {
+				yOffset = ESCAPE_CAMERA_CLIMB_HEIGHT * localEscapeProgress;
+			} else if (localEscapeStyle === "escape_roof_step" || localEscapeStyle === "escape_complete") {
+				yOffset = ESCAPE_CAMERA_CLIMB_HEIGHT;
+			}
+			localEscapeCameraRef.current.set(local.x, 0.5 + yOffset, local.z);
+		}
+		if (escapeSpectatorActive) {
+			deadStateRef.current = false;
+			if (localGhostFollowCamera) {
+				setLocalGhostFollowCamera(false);
+			}
 			return;
 		}
 		if (!local.isAlive) {
@@ -771,6 +832,18 @@ function SceneContent({
 			isAlive: p.isAlive !== false,
 		}));
 	}, [areaInfo.labelByCell, keycards, players, room?.sessionId, suitcases]);
+	useEffect(() => {
+		if (!heliActive || !heliActorSessionId || heliTarget) {
+			return;
+		}
+		const actor = getPlayerBySessionId(players, heliActorSessionId);
+		if (!actor) {
+			return;
+		}
+		setHeliTarget({ x: actor.x, z: actor.z });
+	}, [heliActive, heliActorSessionId, heliTarget, players]);
+	const controlsLockedByEscape = !!escapeSequence?.active;
+	const roofVisible = escapeSequence?.stage === "roof_reveal" || escapeSequence?.stage === "complete";
 
 	return (
 		<>
@@ -779,9 +852,9 @@ function SceneContent({
 			<DebugOrbitCamera targetRef={cameraTargetRef} enabled={debugCameraEnabled} />
 			<MovementInput
 				inputRef={inputRef}
-				enabled={controlsEnabled && !debugCameraEnabled}
+				enabled={controlsEnabled && !debugCameraEnabled && !controlsLockedByEscape}
 				inputSource={inputSource}
-				deadMode={!localIsAlive}
+				deadMode={!localIsAlive && !escapeSpectatorActive}
 			/>
 			<ambientLight intensity={0.42} />
 			<LightingLayer
@@ -790,7 +863,7 @@ function SceneContent({
 				currentArea={currentArea}
 				fogByCell={fogByCell}
 				forceAllActive={spectatorGlobalActive}
-				spectatorRevealedAreas={spectatorReveal ? spectatorRevealedAreas : null}
+				spectatorRevealedAreas={softRevealActive ? spectatorRevealedAreas : null}
 				outlinesEnabled={outlinesEnabled}
 			/>
 			<MapLevel
@@ -801,6 +874,23 @@ function SceneContent({
 				playerPositionRef={localVisualRef}
 				forceAllOutlined={spectatorGlobalActive}
 				outlinesEnabled={outlinesEnabled}
+			/>
+			<RooftopLayer mapSeed={mapSeed ?? 0} mapMaxDistance={mapMaxDistance ?? 12} visible={!!roofVisible} />
+			<HelicopterLayer
+				active={heliActive}
+				runId={heliRunId}
+				target={heliTarget}
+				roofTopY={ROOF_TOP_Y}
+				onCoverChange={(covered) => {
+					setCoveredActorSessionId(covered ? heliActorSessionId : null);
+					if (covered && heliActorSessionId) {
+						setExtractedActorSessionId(heliActorSessionId);
+					}
+				}}
+				onFinished={() => {
+					setHeliActive(false);
+					setCoveredActorSessionId(null);
+				}}
 			/>
 			<DoorLayer fogByCell={fogByCell} revealAll={revealAllNow} audioEnabled={audioEnabled} />
 			<KeycardLayer
@@ -877,6 +967,7 @@ function SceneContent({
 				localDeathStartedMs={localDeathStartedMs}
 			/>
 			{list.map((p) =>
+				p.id === coveredActorSessionId || p.id === extractedActorSessionId ? null :
 				p.isLocal ? (
 					<PlayerVisual
 						key={p.id}

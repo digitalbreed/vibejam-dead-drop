@@ -38,7 +38,7 @@ function EscapeLadderMesh({
 }) {
 	const palette = useMemo(() => ladderPalette(inSameRoom), [inSameRoom]);
 
-	const height = Math.max(1.2, Math.min(ROOM_HEIGHT, ladder.height));
+	const height = Math.max(1.2, Math.min(ROOM_HEIGHT + 2.2, ladder.height));
 	const width = Math.max(0.6, Math.min(1.4, ladder.width));
 	const depth = Math.max(0.12, Math.min(0.28, ladder.depth));
 
@@ -48,7 +48,7 @@ function EscapeLadderMesh({
 	const clearTop = 0.12;
 	const clearBottom = 0.08;
 	const usableHeight = Math.max(0.8, height - clearTop - clearBottom);
-	const rungCount = Math.max(6, Math.min(12, Math.floor(usableHeight / 0.24)));
+	const rungCount = Math.max(6, Math.min(18, Math.floor(usableHeight / 0.24)));
 	const rungSpacing = usableHeight / (rungCount - 1);
 	const rungY0 = -height / 2 + clearBottom;
 
@@ -124,4 +124,3 @@ export function EscapeLadderLayer({
 		</group>
 	);
 }
-

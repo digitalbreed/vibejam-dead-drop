@@ -271,6 +271,23 @@ export function GameScreen({
 				>
 					Debug Cam
 				</button>
+				<button
+					type="button"
+					onClick={() => room?.send("debug_escape_ladder_sequence", {})}
+					style={{
+						marginTop: 6,
+						marginLeft: 6,
+						padding: "0.18rem 0.45rem",
+						fontSize: "0.78rem",
+						borderRadius: 4,
+						border: "1px solid rgba(120, 150, 200, 0.45)",
+						background: "rgba(20, 28, 40, 0.75)",
+						color: "#dfe7f2",
+						cursor: "pointer",
+					}}
+				>
+					Debug Escape
+				</button>
 				{onToggleDevBotsVisibility ? (
 					<button
 						type="button"

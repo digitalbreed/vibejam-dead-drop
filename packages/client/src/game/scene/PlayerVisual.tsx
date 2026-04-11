@@ -104,6 +104,7 @@ export function PlayerVisual({
 		texture.needsUpdate = true;
 		return { texture, width: canvas.width, height: canvas.height };
 	}, [nameLabel, showNameLabel]);
+	const isEscapeSequenceStyle = typeof interactionStyle === "string" && interactionStyle.startsWith("escape_");
 
 	useEffect(() => {
 		return () => {
@@ -213,12 +214,33 @@ export function PlayerVisual({
 				visual.rotation.z += (wobbleRoll - visual.rotation.z) * (1 - Math.exp(-dt * 14));
 				if (isInteracting) {
 					const t = performance.now() / 1000;
-					const jiggleX = Math.sin(t * 21 + wobblePhaseRef.current * 0.7) * 0.045;
-					const jiggleY = Math.cos(t * 17 + wobblePhaseRef.current * 0.5) * 0.05;
-					const jiggleZ = Math.sin(t * 19 + wobblePhaseRef.current * 0.9) * 0.045;
-					visual.position.set(jiggleX, jiggleY, jiggleZ);
-					const squash = 1 + Math.sin(t * 12) * 0.12;
-					visual.scale.set(1.05, 1 / squash, 1.05);
+					const progress = Math.max(0, Math.min(1, interactionProgress ?? 0));
+					if (interactionStyle === "escape_climb") {
+						const wiggleX = Math.sin(t * 24 + wobblePhaseRef.current) * 0.06;
+						const wiggleZ = Math.cos(t * 20 + wobblePhaseRef.current * 0.7) * 0.04;
+						visual.position.set(wiggleX, progress * 3.05, wiggleZ);
+						visual.scale.set(1, 1, 1);
+						visual.rotation.z += (Math.sin(t * 18) * 0.08 - visual.rotation.z) * (1 - Math.exp(-dt * 18));
+					} else if (interactionStyle === "escape_roof_step") {
+						const sway = Math.sin(t * 15 + wobblePhaseRef.current) * 0.04;
+						visual.position.set(sway, 3.05, 0);
+						visual.scale.set(1, 1, 1);
+					} else if (interactionStyle === "escape_complete") {
+						visual.position.set(0, 3.05, 0);
+						visual.scale.set(1, 1, 1);
+					} else if (interactionStyle === "escape_align") {
+						const settleX = Math.sin(t * 14 + wobblePhaseRef.current * 0.9) * 0.03;
+						const settleZ = Math.cos(t * 12 + wobblePhaseRef.current * 0.6) * 0.02;
+						visual.position.set(settleX, 0, settleZ);
+						visual.scale.set(1, 1, 1);
+					} else {
+						const jiggleX = Math.sin(t * 21 + wobblePhaseRef.current * 0.7) * 0.045;
+						const jiggleY = Math.cos(t * 17 + wobblePhaseRef.current * 0.5) * 0.05;
+						const jiggleZ = Math.sin(t * 19 + wobblePhaseRef.current * 0.9) * 0.045;
+						visual.position.set(jiggleX, jiggleY, jiggleZ);
+						const squash = 1 + Math.sin(t * 12) * 0.12;
+						visual.scale.set(1.05, 1 / squash, 1.05);
+					}
 				} else {
 					visual.position.set(0, 0, 0);
 					visual.scale.set(1, 1, 1);
@@ -363,7 +385,7 @@ export function PlayerVisual({
 					</group>
 				) : null}
 			</group>
-			{isInteracting && showInteractionIndicator ? (
+			{isInteracting && showInteractionIndicator && !isEscapeSequenceStyle ? (
 				<group position={[0, 2.45, 0]}>
 					<mesh position={[0, 0, 0]} renderOrder={1}>
 						<circleGeometry args={[0.38, 40]} />

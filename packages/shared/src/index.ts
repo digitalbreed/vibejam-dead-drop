@@ -24,6 +24,7 @@ export type GameClientMessages = {
 	interact_hold: { active: boolean };
 	trap_hold: { active: boolean };
 	lobby_skip_wait: {};
+	debug_escape_ladder_sequence: {};
 };
 
 /** Server -> client transient gameplay events. */
@@ -76,6 +77,13 @@ export type GameServerMessages = {
 		x: number;
 		z: number;
 		range: number;
+	};
+	escape_sequence_event: {
+		stage: "start" | "roof_reveal" | "complete";
+		actorSessionId: string;
+		ladderId: string;
+		cameraX: number;
+		cameraZ: number;
 	};
 	ticker_event:
 		| {

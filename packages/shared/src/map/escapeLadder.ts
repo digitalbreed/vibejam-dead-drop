@@ -23,6 +23,7 @@ const LADDER_ID = "escape_ladder_0";
 const LADDER_RANGE = 2.1;
 const LADDER_WIDTH_M = 1.05;
 const LADDER_DEPTH_M = 0.18;
+const LADDER_HEIGHT_M = ROOM_HEIGHT + 2.0;
 
 function hashString(value: string): number {
 	let hash = 2166136261 >>> 0;
@@ -101,7 +102,7 @@ export function generateEscapeLadderPlacement(layout: MapLayout): EscapeLadderPl
 		range: LADDER_RANGE,
 		width: LADDER_WIDTH_M,
 		depth: LADDER_DEPTH_M,
-		height: ROOM_HEIGHT,
+		height: LADDER_HEIGHT_M,
 	};
 }
 
@@ -121,4 +122,3 @@ export function buildEscapeLadderCollisionWalls(
 	}
 	return walls;
 }
-

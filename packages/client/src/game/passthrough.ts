@@ -15,6 +15,11 @@ type ShaderWithUniforms = {
 };
 
 type PassthroughMaterial = MeshToonMaterial | MeshBasicMaterial;
+let passthroughSuppressed = false;
+
+export function setPassthroughSuppressed(next: boolean): void {
+	passthroughSuppressed = next;
+}
 
 function ensurePassthrough(material: PassthroughMaterial) {
 	if (material.userData.passthroughInitialized) {
@@ -88,7 +93,7 @@ function updatePassthrough(material: PassthroughMaterial, passthrough: Passthrou
 	shader.uniforms.uPassRadius.value = passthrough.radius;
 	shader.uniforms.uPassSoftness.value = passthrough.softness;
 	shader.uniforms.uPassStrength.value = passthrough.strength;
-	shader.uniforms.uPassEnabled.value = enabled ? 1 : 0;
+	shader.uniforms.uPassEnabled.value = enabled && !passthroughSuppressed ? 1 : 0;
 }
 
 export function usePassthroughMaterials(materials: PassthroughMaterial[], passthrough: PassthroughState | undefined, enabled: boolean) {
@@ -110,5 +115,4 @@ export function usePassthroughMaterials(materials: PassthroughMaterial[], passth
 		}
 	}, 100);
 }
-
 

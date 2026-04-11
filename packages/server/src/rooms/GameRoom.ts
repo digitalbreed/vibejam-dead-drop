@@ -168,6 +168,30 @@ type DeadKnockbackState = {
 	speed: number;
 };
 
+type EscapeSequenceStage = "align" | "climb" | "roof_step" | "complete";
+
+type EscapeSequenceState = {
+	actorSessionId: string;
+	ladderId: string;
+	stage: EscapeSequenceStage;
+	stageElapsedMs: number;
+	ladderBaseX: number;
+	ladderBaseZ: number;
+	ladderTopX: number;
+	ladderTopZ: number;
+	roofSideX: number;
+	roofSideZ: number;
+	cameraX: number;
+	cameraZ: number;
+};
+
+type PendingEscapeSequenceStart = {
+	actorSessionId: string;
+	ladderId: string;
+	startAtMs: number;
+	startAtClimb: boolean;
+};
+
 type ServerBotController = {
 	sessionId: string;
 	team: GameTeam;
@@ -180,6 +204,13 @@ type ServerBotController = {
 	lastDecisionAtMs: number;
 	lastInputAtMs: number;
 };
+
+const ESCAPE_ALIGN_DURATION_MS = 500;
+const ESCAPE_CLIMB_DURATION_MS = 1800;
+const ESCAPE_ROOF_STEP_DURATION_MS = 900;
+const ESCAPE_LADDER_APPROACH_OFFSET = 0.44;
+const ESCAPE_ROOF_SIDE_STEP_DISTANCE = 1.7;
+const ESCAPE_SEQUENCE_START_DELAY_MS = 120;
 
 type JoinOptions = {
 	mapMaxDistance?: number;
@@ -258,6 +289,8 @@ export class GameRoom extends Room {
 	private deadKnockback = new Map<string, DeadKnockbackState>();
 	private keycardsPickedUpColors = new Set<string>();
 	private exitFoundBroadcasted = false;
+	private escapeSequence: EscapeSequenceState | null = null;
+	private pendingEscapeSequenceStart: PendingEscapeSequenceStart | null = null;
 	private lobbySkipRequested = false;
 	private teamBySessionId = new Map<string, GameTeam>();
 	private serverBots = new Map<string, ServerBotController>();
@@ -265,6 +298,10 @@ export class GameRoom extends Room {
 
 	messages = {
 		input: (client: Client, message: GameClientMessages["input"]) => {
+			if (this.escapeSequence) {
+				this.input.set(client.sessionId, { x: 0, z: 0 });
+				return;
+			}
 			const x = typeof message.x === "number" ? message.x : 0;
 			const z = typeof message.z === "number" ? message.z : 0;
 			const len = Math.hypot(x, z);
@@ -273,18 +310,30 @@ export class GameRoom extends Room {
 			this.input.set(client.sessionId, { x: nx, z: nz });
 		},
 		interact: (client: Client, _message: GameClientMessages["interact"]) => {
+			if (this.escapeSequence) {
+				return;
+			}
 			if (this.state.phase !== "playing") {
 				return;
 			}
 			this.handleInteract(client);
 		},
 		interact_hold: (client: Client, message: GameClientMessages["interact_hold"]) => {
+			if (this.escapeSequence) {
+				return;
+			}
 			const active = !!message?.active;
 			this.handleInteractHold(client, active);
 		},
 		trap_hold: (client: Client, message: GameClientMessages["trap_hold"]) => {
+			if (this.escapeSequence) {
+				return;
+			}
 			const active = !!message?.active;
 			this.handleTrapHold(client, active);
+		},
+		debug_escape_ladder_sequence: (client: Client, _message: GameClientMessages["debug_escape_ladder_sequence"]) => {
+			this.handleDebugEscapeSequence(client.sessionId);
 		},
 		lobby_skip_wait: (client: Client, _message: GameClientMessages["lobby_skip_wait"]) => {
 			if (this.state.phase !== "lobby") {
@@ -383,6 +432,12 @@ export class GameRoom extends Room {
 		this.removeOwnedTraps(client.sessionId);
 		this.removeTrapPoints(client.sessionId);
 		this.teamBySessionId.delete(client.sessionId);
+		if (this.escapeSequence?.actorSessionId === client.sessionId) {
+			this.escapeSequence = null;
+		}
+		if (this.pendingEscapeSequenceStart?.actorSessionId === client.sessionId) {
+			this.pendingEscapeSequenceStart = null;
+		}
 	}
 
 	onDispose() {
@@ -399,6 +454,8 @@ export class GameRoom extends Room {
 		this.escapeLadderControllers.clear();
 		this.teamBySessionId.clear();
 		this.serverBots.clear();
+		this.escapeSequence = null;
+		this.pendingEscapeSequenceStart = null;
 	}
 
 	private tryStartMatch() {
@@ -617,6 +674,11 @@ export class GameRoom extends Room {
 		if (this.state.phase !== "playing") {
 			return;
 		}
+		this.tryStartPendingEscapeSequence(nowMs);
+		if (this.escapeSequence) {
+			this.tickEscapeSequence(deltaMs);
+			return;
+		}
 		this.tickServerBots(nowMs);
 		const alivePlayers = Array.from(this.state.players.values()).filter((player) => player.isAlive);
 		const previousPositionBySessionId = new Map<string, XY>();
@@ -683,6 +745,8 @@ export class GameRoom extends Room {
 	}
 
 	private createInteractables() {
+		this.escapeSequence = null;
+		this.pendingEscapeSequenceStart = null;
 		this.state.interactables.clear();
 		this.state.keycards.clear();
 		this.state.suitcases.clear();
@@ -814,6 +878,9 @@ export class GameRoom extends Room {
 	}
 
 	private handleInteractBySession(sessionId: string, client?: Client) {
+		if (this.escapeSequence) {
+			return;
+		}
 		const player = this.state.players.get(sessionId);
 		if (!player) {
 			return;
@@ -963,6 +1030,9 @@ export class GameRoom extends Room {
 	}
 
 	private handleInteractHoldBySession(sessionId: string, active: boolean, onError?: () => void) {
+		if (this.escapeSequence) {
+			return;
+		}
 		if (this.state.phase !== "playing") {
 			return;
 		}
@@ -1087,6 +1157,9 @@ export class GameRoom extends Room {
 	}
 
 	private handleTrapHoldBySession(sessionId: string, active: boolean, onError?: () => void) {
+		if (this.escapeSequence) {
+			return;
+		}
 		if (this.state.phase !== "playing") {
 			return;
 		}
@@ -1437,10 +1510,251 @@ export class GameRoom extends Room {
 						this.exitFoundBroadcasted = true;
 						this.emitTickerEvent({ event: "exit_found" });
 					}
+					this.queueEscapeSequenceStart(sessionId, controller.ladder.id, false);
 				}
 			}
 		}
 		this.resetInteractionState(player);
+	}
+
+	private handleDebugEscapeSequence(sessionId: string) {
+		if (process.env.NODE_ENV === "production") {
+			return;
+		}
+		if (this.state.phase !== "playing" || this.escapeSequence) {
+			return;
+		}
+		const player = this.state.players.get(sessionId);
+		if (!player || !player.isAlive) {
+			return;
+		}
+		const ladderController = this.escapeLadderControllers.values().next().value ?? null;
+		if (!ladderController) {
+			return;
+		}
+		const existingTrap = this.findActiveTrapForTarget("escape_ladder", ladderController.ladder.id);
+		if (existingTrap) {
+			this.consumeTrapWithoutExplosion(existingTrap);
+		}
+		this.ensureSuitcaseCarriedBy(sessionId);
+		const outward = this.outwardFromCenter(ladderController.placementSnapshot.x, ladderController.placementSnapshot.z);
+		player.x = ladderController.placementSnapshot.x - outward.x * ESCAPE_LADDER_APPROACH_OFFSET;
+		player.z = ladderController.placementSnapshot.z - outward.z * ESCAPE_LADDER_APPROACH_OFFSET;
+		this.input.set(sessionId, { x: 0, z: 0 });
+		this.queueEscapeSequenceStart(sessionId, ladderController.ladder.id, true);
+	}
+
+	private tryStartPendingEscapeSequence(nowMs: number): void {
+		const pending = this.pendingEscapeSequenceStart;
+		if (!pending || this.escapeSequence) {
+			return;
+		}
+		if (nowMs < pending.startAtMs) {
+			return;
+		}
+		const controller = this.escapeLadderControllers.get(pending.ladderId);
+		const actor = this.state.players.get(pending.actorSessionId);
+		this.pendingEscapeSequenceStart = null;
+		if (!controller || !actor || !actor.isAlive) {
+			return;
+		}
+		this.startEscapeSequence(pending.actorSessionId, controller, pending.startAtClimb);
+	}
+
+	private queueEscapeSequenceStart(sessionId: string, ladderId: string, startAtClimb: boolean): void {
+		if (this.escapeSequence) {
+			return;
+		}
+		this.pendingEscapeSequenceStart = {
+			actorSessionId: sessionId,
+			ladderId,
+			startAtMs: Date.now() + ESCAPE_SEQUENCE_START_DELAY_MS,
+			startAtClimb,
+		};
+	}
+
+	private consumeTrapWithoutExplosion(trap: TrapState): void {
+		const ownerPoint = this.state.trapPoints.get(this.trapPointId(trap.ownerSessionId, trap.trapPointSlotIndex));
+		if (ownerPoint) {
+			ownerPoint.status = "used";
+			ownerPoint.trapId = trap.id;
+		}
+		this.state.traps.delete(trap.id);
+	}
+
+	private ensureSuitcaseCarriedBy(sessionId: string): void {
+		const primary = this.findPrimarySuitcase();
+		if (!primary) {
+			return;
+		}
+		if (primary.isCarriedBy(sessionId)) {
+			return;
+		}
+		const currentCarrier = primary.suitcase.carrierSessionId;
+		if (currentCarrier) {
+			const carrierPlayer = this.state.players.get(currentCarrier);
+			const dropX = carrierPlayer?.x ?? primary.suitcase.x;
+			const dropZ = carrierPlayer?.z ?? primary.suitcase.z;
+			const dropEvent = primary.drop(currentCarrier, dropX, dropZ);
+			if (dropEvent) {
+				this.emitInteractableEvent(dropEvent);
+			}
+		}
+		this.emitInteractableEvent(primary.forceCarry(sessionId));
+	}
+
+	private startEscapeSequence(sessionId: string, controller: EscapeLadderController, startAtClimb: boolean) {
+		if (this.escapeSequence) {
+			return;
+		}
+		const actor = this.state.players.get(sessionId);
+		if (!actor || !actor.isAlive) {
+			return;
+		}
+		const placement = controller.placementSnapshot;
+		const outward = this.outwardFromCenter(placement.x, placement.z);
+		const ladderBaseX = placement.x - outward.x * ESCAPE_LADDER_APPROACH_OFFSET;
+		const ladderBaseZ = placement.z - outward.z * ESCAPE_LADDER_APPROACH_OFFSET;
+		const roofSideX = placement.x + outward.x * ESCAPE_ROOF_SIDE_STEP_DISTANCE;
+		const roofSideZ = placement.z + outward.z * ESCAPE_ROOF_SIDE_STEP_DISTANCE;
+
+		for (const [otherSessionId, other] of this.state.players.entries()) {
+			this.input.set(otherSessionId, { x: 0, z: 0 });
+			this.interactionHold.delete(otherSessionId);
+			this.trapHold.delete(otherSessionId);
+			this.pendingTrapPlacement.delete(otherSessionId);
+			if (otherSessionId !== sessionId && other.isInteracting) {
+				this.cancelInteraction(otherSessionId, other);
+			}
+		}
+
+		this.escapeSequence = {
+			actorSessionId: sessionId,
+			ladderId: controller.ladder.id,
+			stage: startAtClimb ? "climb" : "align",
+			stageElapsedMs: 0,
+			ladderBaseX,
+			ladderBaseZ,
+			ladderTopX: placement.x,
+			ladderTopZ: placement.z,
+			roofSideX,
+			roofSideZ,
+			cameraX: placement.x,
+			cameraZ: placement.z,
+		};
+
+		if (startAtClimb) {
+			actor.x = placement.x;
+			actor.z = placement.z;
+		}
+		this.updateEscapeActorInteraction();
+		this.emitEscapeSequenceEvent("start");
+	}
+
+	private outwardFromCenter(x: number, z: number): XY {
+		const len = Math.hypot(x, z);
+		if (len < 0.001) {
+			return { x: 1, z: 0 };
+		}
+		return { x: x / len, z: z / len };
+	}
+
+	private tickEscapeSequence(deltaMs: number): void {
+		const sequence = this.escapeSequence;
+		if (!sequence) {
+			return;
+		}
+		const actor = this.state.players.get(sequence.actorSessionId);
+		if (!actor || !actor.isAlive) {
+			this.escapeSequence = null;
+			return;
+		}
+		sequence.stageElapsedMs += deltaMs;
+		if (sequence.stage === "align") {
+			const t = Math.min(1, sequence.stageElapsedMs / ESCAPE_ALIGN_DURATION_MS);
+			actor.x += (sequence.ladderBaseX - actor.x) * Math.min(1, t * 0.6 + 0.2);
+			actor.z += (sequence.ladderBaseZ - actor.z) * Math.min(1, t * 0.6 + 0.2);
+			if (t >= 1) {
+				sequence.stage = "climb";
+				sequence.stageElapsedMs = 0;
+				actor.x = sequence.ladderTopX;
+				actor.z = sequence.ladderTopZ;
+				this.updateEscapeActorInteraction();
+				return;
+			}
+		} else if (sequence.stage === "climb") {
+			const t = Math.min(1, sequence.stageElapsedMs / ESCAPE_CLIMB_DURATION_MS);
+			actor.x = sequence.ladderTopX;
+			actor.z = sequence.ladderTopZ;
+			if (t >= 1) {
+				sequence.stage = "roof_step";
+				sequence.stageElapsedMs = 0;
+				this.emitEscapeSequenceEvent("roof_reveal");
+				this.updateEscapeActorInteraction();
+				return;
+			}
+		} else if (sequence.stage === "roof_step") {
+			const t = Math.min(1, sequence.stageElapsedMs / ESCAPE_ROOF_STEP_DURATION_MS);
+			actor.x = sequence.ladderTopX + (sequence.roofSideX - sequence.ladderTopX) * t;
+			actor.z = sequence.ladderTopZ + (sequence.roofSideZ - sequence.ladderTopZ) * t;
+			if (t >= 1) {
+				sequence.stage = "complete";
+				sequence.stageElapsedMs = 0;
+				this.updateEscapeActorInteraction();
+				this.emitEscapeSequenceEvent("complete");
+				return;
+			}
+		} else {
+			actor.x = sequence.roofSideX;
+			actor.z = sequence.roofSideZ;
+		}
+		this.updateEscapeActorInteraction();
+	}
+
+	private updateEscapeActorInteraction(): void {
+		const sequence = this.escapeSequence;
+		if (!sequence) {
+			return;
+		}
+		const actor = this.state.players.get(sequence.actorSessionId);
+		if (!actor) {
+			return;
+		}
+		const durationMs =
+			sequence.stage === "align"
+				? ESCAPE_ALIGN_DURATION_MS
+				: sequence.stage === "climb"
+					? ESCAPE_CLIMB_DURATION_MS
+					: ESCAPE_ROOF_STEP_DURATION_MS;
+		const style =
+			sequence.stage === "align"
+				? "escape_align"
+				: sequence.stage === "climb"
+					? "escape_climb"
+					: sequence.stage === "roof_step"
+						? "escape_roof_step"
+						: "escape_complete";
+		actor.isInteracting = true;
+		actor.interactionKind = "escape_ladder";
+		actor.interactionTargetId = sequence.ladderId;
+		actor.interactionElapsedMs = sequence.stage === "complete" ? durationMs : Math.min(durationMs, sequence.stageElapsedMs);
+		actor.interactionDurationMs = durationMs;
+		actor.interactionStyle = style;
+		actor.interactionTrapSlotIndex = -1;
+	}
+
+	private emitEscapeSequenceEvent(stage: "start" | "roof_reveal" | "complete"): void {
+		const sequence = this.escapeSequence;
+		if (!sequence) {
+			return;
+		}
+		this.broadcast("escape_sequence_event", {
+			stage,
+			actorSessionId: sequence.actorSessionId,
+			ladderId: sequence.ladderId,
+			cameraX: sequence.cameraX,
+			cameraZ: sequence.cameraZ,
+		});
 	}
 
 	private completeTrapPlacement(sessionId: string, player: Player) {

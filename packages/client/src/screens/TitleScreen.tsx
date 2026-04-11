@@ -250,7 +250,7 @@ export function TitleScreen({ onJoin }: TitleScreenProps) {
 					<input
 						type="text"
 						value={gameCode}
-						onChange={(e) => setGameCode(e.target.value)}
+						onChange={(e) => setGameCode(e.target.value.toUpperCase())}
 						placeholder="e.g. ABC123"
 						style={{
 							padding: "0.7rem 1rem",
