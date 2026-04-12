@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 import type { GameTeam } from "@vibejam/shared";
+import nipplejs from "nipplejs";
 import { getLatestRoleAssignment, useRoom, useRoomState } from "../colyseus/roomContext";
 import { schemaMapValues } from "../colyseus/schemaMap";
 import { GameScene } from "../game/GameScene";
@@ -53,7 +54,12 @@ export function GameScreen({
 	const [pingMs, setPingMs] = useState<number | null>(null);
 	const [team, setTeam] = useState<GameTeam | null>(null);
 	const [briefingStage, setBriefingStage] = useState<BriefingStage>("hidden");
+	const [touchControlsEnabled, setTouchControlsEnabled] = useState(false);
+	const [touchInteractPressed, setTouchInteractPressed] = useState(false);
+	const [touchTrapPressed, setTouchTrapPressed] = useState(false);
 	const fpsRef = useRef(0);
+	const joystickZoneRef = useRef<HTMLDivElement | null>(null);
+	const touchMoveRef = useRef({ x: 0, z: 0 });
 	const mapSeed = useRoomState((s) => s.mapSeed);
 	const getPlayerBySessionId = (source: unknown, sessionId: string): any => {
 		if (!source) {
@@ -79,6 +85,58 @@ export function GameScreen({
 		localPlayer.interactionDurationMs > 0
 			? Math.max(0, Math.min(1, localPlayer.interactionElapsedMs / localPlayer.interactionDurationMs))
 			: 0;
+
+	useEffect(() => {
+		const hasTouch =
+			typeof window !== "undefined" &&
+			("ontouchstart" in window ||
+				navigator.maxTouchPoints > 0 ||
+				window.matchMedia("(pointer: coarse)").matches);
+		setTouchControlsEnabled(hasTouch);
+	}, []);
+
+	useEffect(() => {
+		if (!touchControlsEnabled) {
+			touchMoveRef.current.x = 0;
+			touchMoveRef.current.z = 0;
+			setTouchInteractPressed(false);
+			setTouchTrapPressed(false);
+			return;
+		}
+		if (!joystickZoneRef.current) {
+			return;
+		}
+		const joystick = nipplejs.create({
+			zone: joystickZoneRef.current,
+			mode: "static",
+			position: { left: "50%", top: "50%" },
+			size: 126,
+			color: "rgba(255,255,255,0.88)",
+			restOpacity: 0.4,
+			fadeTime: 100,
+		});
+		const handleMove = (event: unknown) => {
+			const data = (event as { data?: { vector?: { x?: number; y?: number } } })?.data;
+			if (!data?.vector) {
+				return;
+			}
+			touchMoveRef.current.x = Number.isFinite(data.vector.x) ? data.vector.x ?? 0 : 0;
+			touchMoveRef.current.z = Number.isFinite(data.vector.y) ? -(data.vector.y ?? 0) : 0;
+		};
+		const handleEnd = () => {
+			touchMoveRef.current.x = 0;
+			touchMoveRef.current.z = 0;
+		};
+		joystick.on("move", handleMove);
+		joystick.on("end", handleEnd);
+		return () => {
+			touchMoveRef.current.x = 0;
+			touchMoveRef.current.z = 0;
+			joystick.off("move", handleMove);
+			joystick.off("end", handleEnd);
+			joystick.destroy();
+		};
+	}, [touchControlsEnabled]);
 
 	useEffect(() => {
 		const cached = getLatestRoleAssignment(room);
@@ -154,6 +212,13 @@ export function GameScreen({
 		setTeam(null);
 		setBriefingStage("hidden");
 	}, [phase]);
+
+	useEffect(() => {
+		return () => {
+			touchMoveRef.current.x = 0;
+			touchMoveRef.current.z = 0;
+		};
+	}, []);
 
 	useEffect(() => {
 		if (briefingStage !== "pre-enter") {
@@ -476,7 +541,101 @@ export function GameScreen({
 				revealAll={revealAll}
 				spectatorReveal={localIsDead}
 				debugCameraEnabled={debugCameraEnabled}
+				touchInputRef={touchMoveRef}
+				touchInteractPressed={touchInteractPressed}
+				touchTrapPressed={touchTrapPressed}
 			/>
+			{touchControlsEnabled ? (
+				<div
+					style={{
+						position: "fixed",
+						inset: 0,
+						zIndex: 7,
+						pointerEvents: "none",
+					}}
+				>
+					<div
+						style={{
+							position: "absolute",
+							left: 18,
+							bottom: 18,
+							width: 162,
+							height: 162,
+							borderRadius: "50%",
+							background: "rgba(11, 16, 23, 0.24)",
+							border: "1px solid rgba(255, 255, 255, 0.16)",
+							backdropFilter: "blur(1px)",
+							pointerEvents: "auto",
+							touchAction: "none",
+						}}
+						ref={joystickZoneRef}
+					/>
+					<div
+						style={{
+							position: "absolute",
+							right: 18,
+							bottom: 18,
+							display: "flex",
+							flexDirection: "column",
+							gap: 10,
+							pointerEvents: "none",
+						}}
+					>
+						<button
+							type="button"
+							onPointerDown={(event) => {
+								event.preventDefault();
+								setTouchTrapPressed(true);
+							}}
+							onPointerUp={() => setTouchTrapPressed(false)}
+							onPointerCancel={() => setTouchTrapPressed(false)}
+							onPointerLeave={() => setTouchTrapPressed(false)}
+							style={{
+								width: 110,
+								height: 58,
+								borderRadius: 14,
+								border: "1px solid rgba(255, 120, 120, 0.58)",
+								background: "rgba(200, 22, 22, 0.42)",
+								color: "rgba(255, 244, 244, 0.96)",
+								fontSize: 16,
+								fontWeight: 700,
+								letterSpacing: "0.06em",
+								textTransform: "uppercase",
+								pointerEvents: "auto",
+								touchAction: "none",
+							}}
+						>
+							Trap
+						</button>
+						<button
+							type="button"
+							onPointerDown={(event) => {
+								event.preventDefault();
+								setTouchInteractPressed(true);
+							}}
+							onPointerUp={() => setTouchInteractPressed(false)}
+							onPointerCancel={() => setTouchInteractPressed(false)}
+							onPointerLeave={() => setTouchInteractPressed(false)}
+							style={{
+								width: 110,
+								height: 58,
+								borderRadius: 14,
+								border: "1px solid rgba(255, 255, 255, 0.58)",
+								background: "rgba(255, 255, 255, 0.32)",
+								color: "#f8f8f8",
+								fontSize: 14,
+								fontWeight: 700,
+								letterSpacing: "0.06em",
+								textTransform: "uppercase",
+								pointerEvents: "auto",
+								touchAction: "none",
+							}}
+						>
+							Interact
+						</button>
+					</div>
+				</div>
+			) : null}
 			{briefingStage !== "hidden" && briefingCopy ? (
 				<div
 					style={{

@@ -4,6 +4,7 @@ import { CanvasTexture, Color, DoubleSide, Group, NearestFilter, SRGBColorSpace,
 import { OutlinedMesh } from "../toonOutline/OutlinedMesh";
 
 const MOVE_SPEED = 12;
+const ESCAPE_FEET_HEIGHT_Y = 3.86;
 
 export type KeycardColor = "blue" | "red";
 
@@ -218,15 +219,15 @@ export function PlayerVisual({
 					if (interactionStyle === "escape_climb") {
 						const wiggleX = Math.sin(t * 24 + wobblePhaseRef.current) * 0.06;
 						const wiggleZ = Math.cos(t * 20 + wobblePhaseRef.current * 0.7) * 0.04;
-						visual.position.set(wiggleX, progress * 3.05, wiggleZ);
+						visual.position.set(wiggleX, progress * ESCAPE_FEET_HEIGHT_Y, wiggleZ);
 						visual.scale.set(1, 1, 1);
 						visual.rotation.z += (Math.sin(t * 18) * 0.08 - visual.rotation.z) * (1 - Math.exp(-dt * 18));
 					} else if (interactionStyle === "escape_roof_step") {
 						const sway = Math.sin(t * 15 + wobblePhaseRef.current) * 0.04;
-						visual.position.set(sway, 3.05, 0);
+						visual.position.set(sway, ESCAPE_FEET_HEIGHT_Y, 0);
 						visual.scale.set(1, 1, 1);
 					} else if (interactionStyle === "escape_complete") {
-						visual.position.set(0, 3.05, 0);
+						visual.position.set(0, ESCAPE_FEET_HEIGHT_Y, 0);
 						visual.scale.set(1, 1, 1);
 					} else if (interactionStyle === "escape_align") {
 						const settleX = Math.sin(t * 14 + wobblePhaseRef.current * 0.9) * 0.03;

@@ -1,4 +1,4 @@
-import { useMemo, useRef, useEffect, useState } from "react";
+import { useMemo, useRef, useEffect, useState, type MutableRefObject } from "react";
 import { Canvas, useFrame } from "@react-three/fiber";
 import { Vector2, Vector3 } from "three";
 import {
@@ -55,7 +55,7 @@ const DEAD_REVEAL_START_DELAY_MS = 3000;
 const DEAD_REVEAL_STEP_MS = 1000;
 const DEAD_CAMERA_FOLLOW_SPEED_THRESHOLD = 0.22;
 const ROOF_TOP_Y = ROOM_HEIGHT + 0.08 + 0.72;
-const ESCAPE_CAMERA_CLIMB_HEIGHT = 3.05;
+const ESCAPE_CAMERA_CLIMB_HEIGHT = 3.86;
 
 type ExplosionFx = {
 	id: number;
@@ -267,6 +267,9 @@ function SceneContent({
 	inputSource,
 	outlinesEnabled,
 	controlsEnabled,
+	touchInputRef,
+	touchInteractPressed,
+	touchTrapPressed,
 }: {
 	onAreaChange?: (label: string) => void;
 	revealAll: boolean;
@@ -276,6 +279,9 @@ function SceneContent({
 	inputSource?: KeyboardInputSource;
 	outlinesEnabled: boolean;
 	controlsEnabled: boolean;
+	touchInputRef?: MutableRefObject<{ x: number; z: number }>;
+	touchInteractPressed?: boolean;
+	touchTrapPressed?: boolean;
 }) {
 	const { room } = useRoom();
 	const players = useRoomState((s) => s.players);
@@ -855,6 +861,9 @@ function SceneContent({
 				enabled={controlsEnabled && !debugCameraEnabled && !controlsLockedByEscape}
 				inputSource={inputSource}
 				deadMode={!localIsAlive && !escapeSpectatorActive}
+				touchInputRef={touchInputRef}
+				touchInteractPressed={touchInteractPressed}
+				touchTrapPressed={touchTrapPressed}
 			/>
 			<ambientLight intensity={0.42} />
 			<LightingLayer
@@ -1020,6 +1029,9 @@ export function GameScene({
 	shadows = true,
 	renderFps,
 	controlsEnabled = true,
+	touchInputRef,
+	touchInteractPressed = false,
+	touchTrapPressed = false,
 }: {
 	onAreaChange?: (label: string) => void;
 	revealAll: boolean;
@@ -1033,6 +1045,9 @@ export function GameScene({
 	shadows?: boolean;
 	renderFps?: number;
 	controlsEnabled?: boolean;
+	touchInputRef?: MutableRefObject<{ x: number; z: number }>;
+	touchInteractPressed?: boolean;
+	touchTrapPressed?: boolean;
 }) {
 	return (
 		<Canvas
@@ -1056,6 +1071,9 @@ export function GameScene({
 				inputSource={inputSource}
 				outlinesEnabled={outlinesEnabled}
 				controlsEnabled={controlsEnabled}
+				touchInputRef={touchInputRef}
+				touchInteractPressed={touchInteractPressed}
+				touchTrapPressed={touchTrapPressed}
 			/>
 		</Canvas>
 	);

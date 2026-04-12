@@ -21,7 +21,7 @@ function normalizeGameCode(value: string): string {
 		.replace(/\s+/g, "")
 		.trim()
 		.toUpperCase()
-		.replace(/[^A-Z0-9_-]/g, "")
+		.replace(/[^A-Z0-9]/g, "")
 		.slice(0, 24);
 }
 

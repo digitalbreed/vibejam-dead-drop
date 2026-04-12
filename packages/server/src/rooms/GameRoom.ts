@@ -226,7 +226,7 @@ function normalizeGameCode(raw: unknown): string {
 	if (!compact) {
 		return "";
 	}
-	return compact.replace(/[^A-Z0-9_-]/g, "").slice(0, MAX_GAME_CODE_LENGTH);
+	return compact.replace(/[^A-Z0-9]/g, "").slice(0, MAX_GAME_CODE_LENGTH);
 }
 
 function randomItem<T>(list: readonly T[]): T {

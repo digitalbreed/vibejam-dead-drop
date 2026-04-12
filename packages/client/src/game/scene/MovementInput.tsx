@@ -1,4 +1,4 @@
-import { useEffect, useRef, type MutableRefObject } from "react";
+import { useCallback, useEffect, useRef, type MutableRefObject } from "react";
 import { useFrame } from "@react-three/fiber";
 import { Vector2 } from "three";
 import { type GameClientMessages } from "@vibejam/shared";
@@ -19,11 +19,17 @@ export function MovementInput({
 	enabled,
 	inputSource,
 	deadMode,
+	touchInputRef,
+	touchInteractPressed = false,
+	touchTrapPressed = false,
 }: {
 	inputRef: MutableRefObject<Vector2>;
 	enabled: boolean;
 	inputSource?: KeyboardInputSource;
 	deadMode: boolean;
+	touchInputRef?: MutableRefObject<{ x: number; z: number }>;
+	touchInteractPressed?: boolean;
+	touchTrapPressed?: boolean;
 }) {
 	const { room } = useRoom();
 	const keys = useRef({ KeyW: false, KeyA: false, KeyS: false, KeyD: false });
@@ -42,84 +48,141 @@ export function MovementInput({
 
 	const source = inputSource ?? windowKeyboardInputSource;
 	const deadStopSentRef = useRef(false);
+	const previousTouchInteractPressedRef = useRef(false);
+	const previousTouchTrapPressedRef = useRef(false);
+
+	const beginInteractPress = useCallback(() => {
+		if (deadMode || !room) {
+			return;
+		}
+		interactHoldRef.current.pressed = true;
+		interactHoldRef.current.holdSent = false;
+		interactHoldRef.current.startMs = performance.now();
+		if (interactHoldRef.current.timerId !== null) {
+			window.clearTimeout(interactHoldRef.current.timerId);
+		}
+		interactHoldRef.current.timerId = window.setTimeout(() => {
+			if (!interactHoldRef.current.pressed || interactHoldRef.current.holdSent) {
+				return;
+			}
+			interactHoldRef.current.holdSent = true;
+			const holdPayload: GameClientMessages["interact_hold"] = { active: true };
+			room.send("interact_hold", holdPayload);
+		}, HOLD_START_DELAY_MS);
+	}, [deadMode, room]);
+
+	const endInteractPress = useCallback(() => {
+		if (!room) {
+			return;
+		}
+		const heldMs = performance.now() - interactHoldRef.current.startMs;
+		interactHoldRef.current.pressed = false;
+		if (interactHoldRef.current.timerId !== null) {
+			window.clearTimeout(interactHoldRef.current.timerId);
+			interactHoldRef.current.timerId = null;
+		}
+		if (interactHoldRef.current.holdSent) {
+			const holdPayload: GameClientMessages["interact_hold"] = { active: false };
+			room.send("interact_hold", holdPayload);
+		}
+		if (!deadMode && !interactHoldRef.current.holdSent && heldMs <= SHORT_PRESS_MAX_MS) {
+			const interactPayload: GameClientMessages["interact"] = {};
+			room.send("interact", interactPayload);
+		}
+		interactHoldRef.current.holdSent = false;
+	}, [deadMode, room]);
+
+	const beginTrapPress = useCallback(() => {
+		if (deadMode || !room) {
+			return;
+		}
+		trapHoldRef.current.pressed = true;
+		trapHoldRef.current.holdSent = false;
+		trapHoldRef.current.startMs = performance.now();
+		if (trapHoldRef.current.timerId !== null) {
+			window.clearTimeout(trapHoldRef.current.timerId);
+		}
+		trapHoldRef.current.timerId = window.setTimeout(() => {
+			if (!trapHoldRef.current.pressed || trapHoldRef.current.holdSent) {
+				return;
+			}
+			trapHoldRef.current.holdSent = true;
+			const holdPayload: GameClientMessages["trap_hold"] = { active: true };
+			room.send("trap_hold", holdPayload);
+		}, HOLD_START_DELAY_MS);
+	}, [deadMode, room]);
+
+	const endTrapPress = useCallback(() => {
+		if (!room) {
+			return;
+		}
+		trapHoldRef.current.pressed = false;
+		if (trapHoldRef.current.timerId !== null) {
+			window.clearTimeout(trapHoldRef.current.timerId);
+			trapHoldRef.current.timerId = null;
+		}
+		if (trapHoldRef.current.holdSent) {
+			const holdPayload: GameClientMessages["trap_hold"] = { active: false };
+			room.send("trap_hold", holdPayload);
+		}
+		trapHoldRef.current.holdSent = false;
+	}, [room]);
 
 	useEffect(() => {
 		const onDown = (e: KeyboardLikeEvent) => {
 			if (!enabled) {
 				return;
 			}
-			if (!deadMode && e.code === "KeyE" && !e.repeat && room) {
-				interactHoldRef.current.pressed = true;
-				interactHoldRef.current.holdSent = false;
-				interactHoldRef.current.startMs = performance.now();
-				if (interactHoldRef.current.timerId !== null) {
-					window.clearTimeout(interactHoldRef.current.timerId);
-				}
-				interactHoldRef.current.timerId = window.setTimeout(() => {
-					if (!interactHoldRef.current.pressed || interactHoldRef.current.holdSent) {
-						return;
-					}
-					interactHoldRef.current.holdSent = true;
-					const holdPayload: GameClientMessages["interact_hold"] = { active: true };
-					room.send("interact_hold", holdPayload);
-				}, HOLD_START_DELAY_MS);
+			if (e.code === "KeyE" && !e.repeat) {
+				beginInteractPress();
 			}
-			if (!deadMode && e.code === "KeyQ" && !e.repeat && room) {
-				trapHoldRef.current.pressed = true;
-				trapHoldRef.current.holdSent = false;
-				trapHoldRef.current.startMs = performance.now();
-				if (trapHoldRef.current.timerId !== null) {
-					window.clearTimeout(trapHoldRef.current.timerId);
-				}
-				trapHoldRef.current.timerId = window.setTimeout(() => {
-					if (!trapHoldRef.current.pressed || trapHoldRef.current.holdSent) {
-						return;
-					}
-					trapHoldRef.current.holdSent = true;
-					const holdPayload: GameClientMessages["trap_hold"] = { active: true };
-					room.send("trap_hold", holdPayload);
-				}, HOLD_START_DELAY_MS);
+			if (e.code === "KeyQ" && !e.repeat) {
+				beginTrapPress();
 			}
 			if (e.code in keys.current) {
 				keys.current[e.code as keyof typeof keys.current] = true;
 			}
 		};
 		const onUp = (e: KeyboardLikeEvent) => {
-			if (e.code === "KeyE" && room) {
-				const heldMs = performance.now() - interactHoldRef.current.startMs;
-				interactHoldRef.current.pressed = false;
-				if (interactHoldRef.current.timerId !== null) {
-					window.clearTimeout(interactHoldRef.current.timerId);
-					interactHoldRef.current.timerId = null;
-				}
-				if (interactHoldRef.current.holdSent) {
-					const holdPayload: GameClientMessages["interact_hold"] = { active: false };
-					room.send("interact_hold", holdPayload);
-				}
-				if (!deadMode && !interactHoldRef.current.holdSent && heldMs <= SHORT_PRESS_MAX_MS) {
-					const interactPayload: GameClientMessages["interact"] = {};
-					room.send("interact", interactPayload);
-				}
-				interactHoldRef.current.holdSent = false;
+			if (e.code === "KeyE") {
+				endInteractPress();
 			}
-			if (e.code === "KeyQ" && room) {
-				trapHoldRef.current.pressed = false;
-				if (trapHoldRef.current.timerId !== null) {
-					window.clearTimeout(trapHoldRef.current.timerId);
-					trapHoldRef.current.timerId = null;
-				}
-				if (trapHoldRef.current.holdSent) {
-					const holdPayload: GameClientMessages["trap_hold"] = { active: false };
-					room.send("trap_hold", holdPayload);
-				}
-				trapHoldRef.current.holdSent = false;
+			if (e.code === "KeyQ") {
+				endTrapPress();
 			}
 			if (e.code in keys.current) {
 				keys.current[e.code as keyof typeof keys.current] = false;
 			}
 		};
 		return source.subscribe(onDown, onUp);
-	}, [deadMode, enabled, room, source]);
+	}, [beginInteractPress, beginTrapPress, enabled, endInteractPress, endTrapPress, source]);
+
+	useEffect(() => {
+		if (!enabled) {
+			previousTouchInteractPressedRef.current = false;
+			previousTouchTrapPressedRef.current = false;
+			return;
+		}
+		if (touchInteractPressed && !previousTouchInteractPressedRef.current) {
+			beginInteractPress();
+		} else if (!touchInteractPressed && previousTouchInteractPressedRef.current) {
+			endInteractPress();
+		}
+		previousTouchInteractPressedRef.current = touchInteractPressed;
+	}, [beginInteractPress, enabled, endInteractPress, touchInteractPressed]);
+
+	useEffect(() => {
+		if (!enabled) {
+			previousTouchTrapPressedRef.current = false;
+			return;
+		}
+		if (touchTrapPressed && !previousTouchTrapPressedRef.current) {
+			beginTrapPress();
+		} else if (!touchTrapPressed && previousTouchTrapPressedRef.current) {
+			endTrapPress();
+		}
+		previousTouchTrapPressedRef.current = touchTrapPressed;
+	}, [beginTrapPress, enabled, endTrapPress, touchTrapPressed]);
 
 	useFrame(() => {
 		if (!room) {
@@ -169,6 +232,11 @@ export function MovementInput({
 		}
 		if (k.KeyD) {
 			x += 1;
+		}
+		const touchInput = touchInputRef?.current;
+		if (touchInput) {
+			x += touchInput.x;
+			z += touchInput.z;
 		}
 		const len = Math.hypot(x, z);
 		const nx = len > 1 ? x / len : x;
