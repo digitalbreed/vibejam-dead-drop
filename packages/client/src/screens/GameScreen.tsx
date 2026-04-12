@@ -440,17 +440,27 @@ export function GameScreen({
 					<div
 						style={{
 							display: "flex",
-							alignItems: "center",
-							gap: 6,
+							flexDirection: "column",
+							alignItems: "flex-start",
+							gap: touchControlsEnabled ? 2 : 0,
 							color: "#ffffff",
 							fontSize: "1.45rem",
 							lineHeight: 1,
 							fontWeight: 700,
 						}}
 					>
-						<span>{playerName}</span>
-						<span style={{ opacity: 0.75 }}>-</span>
-						<span style={{ color: teamColor }}>{teamLabel}</span>
+						{touchControlsEnabled ? (
+							<>
+								<span>{playerName}</span>
+								<span style={{ color: teamColor, fontSize: "1.05rem", letterSpacing: "0.08em" }}>{teamLabel}</span>
+							</>
+						) : (
+							<>
+								<span>{playerName}</span>
+								<span style={{ opacity: 0.75 }}>-</span>
+								<span style={{ color: teamColor }}>{teamLabel}</span>
+							</>
+						)}
 					</div>
 					<div
 						style={{
