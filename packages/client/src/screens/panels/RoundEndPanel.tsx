@@ -1,5 +1,6 @@
 import { useEffect, useState } from "react";
 import type { GameServerMessages, GameTeam } from "@vibejam/shared";
+import { playUiClickSound } from "../../audio/playUiClickSound";
 
 type RoundEndStage = "hidden" | "pre-enter" | "center";
 type RoundEndSummary = GameServerMessages["round_end_summary"];
@@ -166,7 +167,10 @@ export function RoundEndPanel({
 						type="button"
 						className="comic-agent-button"
 						style={mobileLayout ? { width: "100%" } : undefined}
-						onClick={() => onPlayAnotherRound?.(rematchCode)}
+						onClick={() => {
+							playUiClickSound();
+							onPlayAnotherRound?.(rematchCode);
+						}}
 					>
 						Rematch with this team
 					</button>
@@ -174,7 +178,10 @@ export function RoundEndPanel({
 						type="button"
 						className="comic-agent-button"
 						style={mobileLayout ? { width: "100%" } : undefined}
-						onClick={() => onBackToStartScreen?.()}
+						onClick={() => {
+							playUiClickSound();
+							onBackToStartScreen?.();
+						}}
 					>
 						Back to start screen
 					</button>

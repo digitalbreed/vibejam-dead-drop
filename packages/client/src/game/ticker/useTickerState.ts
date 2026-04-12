@@ -48,23 +48,57 @@ export function useTickerState() {
 	const { room } = useRoom();
 	const [queue, setQueue] = useState<TickerEvent[]>([]);
 	const [state, setState] = useState<TickerState>({ message: "", phase: "idle" });
+	const [suppressed, setSuppressed] = useState(false);
+
+	useEffect(() => {
+		setSuppressed(false);
+		setQueue([]);
+	}, [room]);
 
 	// Listen for ticker events
 	useEffect(() => {
 		if (!room) return;
 		return room.onMessage<GameServerMessages["ticker_event"]>("ticker_event", (message) => {
+			if (suppressed) {
+				return;
+			}
 			setQueue((q) => [...q, message]);
 		});
+	}, [room, suppressed]);
+
+	useEffect(() => {
+		if (!room) {
+			return;
+		}
+		const offEscape = room.onMessage<GameServerMessages["escape_sequence_event"]>("escape_sequence_event", (message) => {
+			if (message.stage !== "start") {
+				return;
+			}
+			setSuppressed(true);
+			setQueue([]);
+		});
+		const offEnforcerOutro = room.onMessage<GameServerMessages["enforcer_outro_event"]>("enforcer_outro_event", (message) => {
+			if (message.stage !== "start") {
+				return;
+			}
+			setSuppressed(true);
+			setQueue([]);
+		});
+		return () => {
+			offEscape();
+			offEnforcerOutro();
+		};
 	}, [room]);
 
 	// Process queue
 	useEffect(() => {
+		if (suppressed) return;
 		if (state.phase !== "idle" || queue.length === 0) return;
 
 		const next = queue[0];
 		setQueue((q) => q.slice(1));
 		setState({ message: getTickerText(next), phase: "fade-in" });
-	}, [state.phase, queue]);
+	}, [state.phase, queue, suppressed]);
 
 	// Handle phase transitions
 	useEffect(() => {

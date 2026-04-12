@@ -1,5 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { useRoom, useRoomState } from "../colyseus/roomContext";
+import { useBackgroundMusic } from "../audio/BackgroundMusicContext";
+import { playUiClickSound } from "../audio/playUiClickSound";
 
 type PlayerLobbyView = {
 	sessionId: string;
@@ -54,6 +56,16 @@ export function LobbyScreen() {
 	const [nowMs, setNowMs] = useState(() => Date.now());
 	const previousCountRef = useRef<number | null>(null);
 	const audioContextRef = useRef<AudioContext | null>(null);
+	const lobbyMusicTrack = useMemo(
+		() => ({
+			src: "/mod01.ogg",
+			volume: 0.45,
+			loop: true,
+		}),
+		[],
+	);
+
+	useBackgroundMusic(lobbyMusicTrack, { enabled: phase === "lobby", priority: 20, fadeMs: 1000 });
 
 	useEffect(() => {
 		if (phase !== "lobby") {
@@ -336,7 +348,10 @@ export function LobbyScreen() {
 					<button
 						type="button"
 						className="comic-agent-button"
-						onClick={() => room?.send("lobby_skip_wait", {})}
+						onClick={() => {
+							playUiClickSound();
+							room?.send("lobby_skip_wait", {});
+						}}
 					>
 						Deploy with Bots
 					</button>

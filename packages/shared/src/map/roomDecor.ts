@@ -2,6 +2,7 @@ import type { WallRect } from "./collision.js";
 import { CELL_SIZE } from "./constants.js";
 import { canonicalEdgeKey, layoutOccupancy, layoutRoomMap, type MapLayout } from "./generateLayout.js";
 import { mulberry32 } from "./rng.js";
+import { generateEscapeLadderPlacement } from "./escapeLadder.js";
 import { VAULT_TILE_IX, VAULT_TILE_IZ } from "./vaults.js";
 
 export type TableRotationQuarter = 0 | 1 | 2 | 3;
@@ -119,6 +120,72 @@ function isVaultBackNorthWall(ix: number, iz: number): boolean {
 	return ix === VAULT_TILE_IX && (iz === VAULT_TILE_IZ || iz === VAULT_TILE_IZ - 1);
 }
 
+function nearestChamberCellForLadder(layout: MapLayout, roomId: number, x: number, z: number): { ix: number; iz: number } | null {
+	let best: { ix: number; iz: number; distSq: number } | null = null;
+	for (const cell of layout.cells) {
+		if (cell.kind !== "chamber" || cell.roomId !== roomId) {
+			continue;
+		}
+		const cellX = cell.ix * CELL_SIZE;
+		const cellZ = cell.iz * CELL_SIZE;
+		const dx = x - cellX;
+		const dz = z - cellZ;
+		const distSq = dx * dx + dz * dz;
+		if (!best || distSq < best.distSq || (distSq === best.distSq && (cell.iz < best.iz || (cell.iz === best.iz && cell.ix < best.ix)))) {
+			best = { ix: cell.ix, iz: cell.iz, distSq };
+		}
+	}
+	if (!best) {
+		return null;
+	}
+	return { ix: best.ix, iz: best.iz };
+}
+
+function ladderBlockedTileKeys(layout: MapLayout): Set<string> {
+	const blocked = new Set<string>();
+	const ladder = generateEscapeLadderPlacement(layout);
+	if (!ladder) {
+		return blocked;
+	}
+	const roomByCell = layoutRoomMap(layout);
+	const anchor = nearestChamberCellForLadder(layout, ladder.roomId, ladder.x, ladder.z);
+	if (!anchor) {
+		return blocked;
+	}
+	blocked.add(cellKey(anchor.ix, anchor.iz));
+	// "Front of ladder" is the approach side toward the map center.
+	const toCenterX = -ladder.x;
+	const toCenterZ = -ladder.z;
+	if (Math.abs(toCenterX) >= Math.abs(toCenterZ)) {
+		const stepX = toCenterX === 0 ? 0 : toCenterX > 0 ? 1 : -1;
+		const frontIx = anchor.ix + stepX;
+		const frontIz = anchor.iz;
+		const backIx = anchor.ix - stepX;
+		const backIz = anchor.iz;
+		if (roomByCell.get(cellKey(frontIx, frontIz)) === ladder.roomId) {
+			blocked.add(cellKey(frontIx, frontIz));
+		}
+		if (roomByCell.get(cellKey(backIx, backIz)) === ladder.roomId) {
+			// Prevent tables from spawning behind the ladder.
+			blocked.add(cellKey(backIx, backIz));
+		}
+	} else {
+		const stepZ = toCenterZ > 0 ? 1 : -1;
+		const frontIx = anchor.ix;
+		const frontIz = anchor.iz + stepZ;
+		const backIx = anchor.ix;
+		const backIz = anchor.iz - stepZ;
+		if (roomByCell.get(cellKey(frontIx, frontIz)) === ladder.roomId) {
+			blocked.add(cellKey(frontIx, frontIz));
+		}
+		if (roomByCell.get(cellKey(backIx, backIz)) === ladder.roomId) {
+			// Prevent tables from spawning behind the ladder.
+			blocked.add(cellKey(backIx, backIz));
+		}
+	}
+	return blocked;
+}
+
 export function generateRoomDecorPlacements(layout: MapLayout): RoomDecorPlacements {
 	const occupancy = layoutOccupancy(layout);
 	const roomByCell = layoutRoomMap(layout);
@@ -137,6 +204,7 @@ export function generateRoomDecorPlacements(layout: MapLayout): RoomDecorPlaceme
 	const roomIds = [...cellsByRoom.keys()].sort((a, b) => a - b);
 	const tables: TablePlacement[] = [];
 	const papers: PaperPlacement[] = [];
+	const ladderBlockedTiles = ladderBlockedTileKeys(layout);
 	type FrameCandidate = {
 		roomId: number;
 		ix: number;
@@ -170,15 +238,24 @@ export function generateRoomDecorPlacements(layout: MapLayout): RoomDecorPlaceme
 		const sortedRoomCells = [...roomCells].sort((a, b) => (a.iz - b.iz) || (a.ix - b.ix));
 
 		const innerTiles = sortedRoomCells.filter((cell) => {
-			const north = roomByCell.get(cellKey(cell.ix, cell.iz - 1)) === roomId;
-			const south = roomByCell.get(cellKey(cell.ix, cell.iz + 1)) === roomId;
-			const west = roomByCell.get(cellKey(cell.ix - 1, cell.iz)) === roomId;
-			const east = roomByCell.get(cellKey(cell.ix + 1, cell.iz)) === roomId;
-			return north && south && west && east;
+			// Strict inner tile requirement: full 3x3 neighborhood must be within the same chamber.
+			// This keeps tables away from walls and away from doorway-adjacent tiles.
+			for (let dz = -1; dz <= 1; dz++) {
+				for (let dx = -1; dx <= 1; dx++) {
+					if (roomByCell.get(cellKey(cell.ix + dx, cell.iz + dz)) !== roomId) {
+						return false;
+					}
+				}
+			}
+			return true;
 		});
 
 		if (roomWidthCells > 3 && roomHeightCells > 3 && innerTiles.length > 0) {
-			const tableTiles = innerTiles.filter((tile) => !isVaultTableBlockedTile(tile.ix, tile.iz));
+			const tableTiles = innerTiles.filter(
+				(tile) =>
+					!isVaultTableBlockedTile(tile.ix, tile.iz) &&
+					!ladderBlockedTiles.has(cellKey(tile.ix, tile.iz)),
+			);
 			if (tableTiles.length === 0) {
 				continue;
 			}

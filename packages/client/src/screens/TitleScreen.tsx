@@ -1,4 +1,6 @@
-import { useEffect, useRef, useState, type CSSProperties } from "react";
+import { useEffect, useMemo, useRef, useState, type CSSProperties } from "react";
+import { useBackgroundMusic } from "../audio/BackgroundMusicContext";
+import { playUiClickSound } from "../audio/playUiClickSound";
 
 type TitleScreenProps = {
 	onJoin: (params: { operatorName: string; gameCode: string }) => void;
@@ -19,17 +21,118 @@ const PAPER_FEED_START_RATIO = 0.64;
 const PAPER_FEED_END_RATIO = 0.92;
 const OPERATOR_NAME_STORAGE_KEY = "vibejam.operatorName";
 
+function playShredderSound(volume = 0.18): void {
+	if (typeof window === "undefined") {
+		return;
+	}
+	const AudioContextCtor =
+		window.AudioContext ??
+		(window as typeof window & { webkitAudioContext?: typeof AudioContext }).webkitAudioContext;
+	if (!AudioContextCtor) {
+		return;
+	}
+
+	const ctx = new AudioContextCtor();
+	const now = ctx.currentTime;
+	const duration = 0.78;
+
+	const masterGain = ctx.createGain();
+	masterGain.gain.setValueAtTime(0.0001, now);
+	masterGain.gain.exponentialRampToValueAtTime(Math.max(0.0001, volume), now + 0.035);
+	masterGain.gain.setValueAtTime(Math.max(0.0001, volume * 0.95), now + 0.16);
+	masterGain.gain.setValueAtTime(Math.max(0.0001, volume * 0.9), now + 0.58);
+	masterGain.gain.exponentialRampToValueAtTime(0.0001, now + duration);
+
+	const toneA = ctx.createOscillator();
+	toneA.type = "square";
+	toneA.frequency.setValueAtTime(980, now);
+	toneA.frequency.linearRampToValueAtTime(920, now + duration);
+
+	const toneB = ctx.createOscillator();
+	toneB.type = "square";
+	toneB.frequency.setValueAtTime(1320, now);
+	toneB.frequency.linearRampToValueAtTime(1240, now + duration);
+
+	const toneMix = ctx.createGain();
+	toneMix.gain.setValueAtTime(0.05, now);
+
+	const noiseBuffer = ctx.createBuffer(1, Math.floor(ctx.sampleRate * duration), ctx.sampleRate);
+	const channel = noiseBuffer.getChannelData(0);
+	for (let i = 0; i < channel.length; i++) {
+		channel[i] = (Math.random() * 2 - 1) * 0.9;
+	}
+	const noiseSource = ctx.createBufferSource();
+	noiseSource.buffer = noiseBuffer;
+	const noiseGain = ctx.createGain();
+	noiseGain.gain.setValueAtTime(0.62, now);
+
+	const lowPass = ctx.createBiquadFilter();
+	lowPass.type = "lowpass";
+	lowPass.frequency.setValueAtTime(3000, now);
+	lowPass.Q.setValueAtTime(0.2, now);
+
+	const highPass = ctx.createBiquadFilter();
+	highPass.type = "highpass";
+	highPass.frequency.setValueAtTime(700, now);
+
+	const bandPass = ctx.createBiquadFilter();
+	bandPass.type = "bandpass";
+	bandPass.frequency.setValueAtTime(1700, now);
+	bandPass.Q.setValueAtTime(0.38, now);
+
+	toneA.connect(toneMix);
+	toneB.connect(toneMix);
+	noiseSource.connect(noiseGain);
+	noiseGain.connect(highPass);
+	toneMix.connect(highPass);
+	highPass.connect(bandPass);
+	bandPass.connect(lowPass);
+	lowPass.connect(masterGain);
+	masterGain.connect(ctx.destination);
+
+	noiseSource.start(now);
+	toneA.start(now);
+	toneB.start(now);
+	noiseSource.stop(now + duration);
+	toneA.stop(now + duration);
+	toneB.stop(now + duration);
+
+	window.setTimeout(() => {
+		void ctx.close();
+	}, Math.ceil((duration + 0.2) * 1000));
+}
+
 export function TitleScreen({ onJoin }: TitleScreenProps) {
+	const titleMusicTrack = useMemo(
+		() => ({
+			src: "/mod01.ogg",
+			volume: 0.45,
+			loop: true,
+		}),
+		[],
+	);
+	useBackgroundMusic(titleMusicTrack, { priority: 10, fadeMs: 1000 });
+
 	const [shreds, setShreds] = useState<ShredParticle[]>([]);
 	const [operatorName, setOperatorName] = useState("");
 	const [gameCode, setGameCode] = useState("");
 	const nextShredIdRef = useRef(1);
+	const lastShredSoundCycleRef = useRef(-1);
+	const paperCycleStartMsRef = useRef(typeof performance !== "undefined" ? performance.now() : 0);
 
 	useEffect(() => {
+		lastShredSoundCycleRef.current = -1;
+		const cycleStartMs = paperCycleStartMsRef.current;
 		const emitter = window.setInterval(() => {
-			const phase = (performance.now() % PAPER_CYCLE_MS) / PAPER_CYCLE_MS;
+			const elapsedMs = Math.max(0, performance.now() - cycleStartMs);
+			const phase = (elapsedMs % PAPER_CYCLE_MS) / PAPER_CYCLE_MS;
 			if (phase < PAPER_FEED_START_RATIO || phase > PAPER_FEED_END_RATIO) {
 				return;
+			}
+			const cycle = Math.floor(elapsedMs / PAPER_CYCLE_MS);
+			if (cycle !== lastShredSoundCycleRef.current) {
+				lastShredSoundCycleRef.current = cycle;
+				playShredderSound(0.05);
 			}
 			setShreds((current) => {
 				const next = current.slice(-80);
@@ -273,6 +376,7 @@ export function TitleScreen({ onJoin }: TitleScreenProps) {
 					className="comic-agent-button"
 					onClick={() =>
 						{
+							playUiClickSound();
 							const trimmedOperatorName = operatorName.trim();
 							if (typeof window !== "undefined") {
 								if (trimmedOperatorName.length > 0) {

@@ -1,5 +1,6 @@
 import { CELL_SIZE, INITIAL_ROOM_HALF_CELLS, type CellKind } from "./constants.js";
 import { mulberry32 } from "./rng.js";
+import { VAULT_TILE_IX, VAULT_TILE_IZ } from "./vaults.js";
 
 /**
  * RogueBasin dungeon-building algorithm, aligned to Version 3 feature placement:
@@ -339,6 +340,11 @@ export function generateMapLayout(seed: number, maxGridDistance: number): MapLay
 		minZ = Math.min(minZ, wz - halfCell);
 		maxZ = Math.max(maxZ, wz + halfCell);
 	}
+
+	// Keep the wall line behind the vault solid: remove any generated door edges there
+	// so layout-based wall/collision/rendering stays consistent with door placement rules.
+	doorEdges.delete(canonicalEdgeKey(VAULT_TILE_IX, VAULT_TILE_IZ, VAULT_TILE_IX, VAULT_TILE_IZ - 1));
+	doorEdges.delete(canonicalEdgeKey(VAULT_TILE_IX, VAULT_TILE_IZ - 1, VAULT_TILE_IX, VAULT_TILE_IZ - 2));
 
 	return {
 		seed,

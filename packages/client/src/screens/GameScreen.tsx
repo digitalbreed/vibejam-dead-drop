@@ -1,6 +1,7 @@
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type { GameServerMessages, GameTeam } from "@vibejam/shared";
 import nipplejs from "nipplejs";
+import { useBackgroundMusic } from "../audio/BackgroundMusicContext";
 import { getLatestRoleAssignment, useRoom, useRoomState } from "../colyseus/roomContext";
 import { schemaMapValues } from "../colyseus/schemaMap";
 import { GameScene } from "../game/GameScene";
@@ -82,6 +83,19 @@ export function GameScreen({
 	const dismissBriefing = useCallback(() => {
 		setBriefingStage((current) => (current === "center" ? "exit" : current));
 	}, []);
+	const roundMusicTrack = useMemo(
+		() => ({
+			src: "/mod12.ogg",
+			volume: 0.42,
+			loop: true,
+		}),
+		[],
+	);
+	useBackgroundMusic(roundMusicTrack, {
+		enabled: phase === "playing" && roundEndStage === "hidden",
+		priority: 30,
+		fadeMs: 1200,
+	});
 
 	useEffect(() => {
 		if (typeof window === "undefined") {
