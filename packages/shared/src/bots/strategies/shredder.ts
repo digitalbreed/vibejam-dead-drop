@@ -208,7 +208,10 @@ function droppedSuitcaseBehavior(context: BotDecisionContext) {
 		return null;
 	}
 	const dist = Math.hypot(self.x - dropped.x, self.z - dropped.z);
-	if (dist <= dropped.range + context.config.actionRangeSlack) {
+	const sameRoom = self.roomId !== null && dropped.roomId !== null && self.roomId === dropped.roomId;
+	// Use strict server-equivalent pickup radius (no action slack), otherwise bots can
+	// "decide pickup" through doorways/walls and stall while server rejects the action.
+	if (sameRoom && dist <= dropped.range) {
 		if (!isPickupLeaderForKeycard(context, {
 			id: dropped.id,
 			color: "blue",
