@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { useRoom, useRoomState } from "../colyseus/roomContext";
 
 type PlayerLobbyView = {
@@ -35,6 +35,15 @@ function colorIntToHex(color: number): string {
 	return `#${safe.toString(16).padStart(6, "0")}`;
 }
 
+function getAudioContextCtor():
+	| (new (contextOptions?: AudioContextOptions) => AudioContext)
+	| undefined {
+	return (
+		window.AudioContext ??
+		(window as typeof window & { webkitAudioContext?: typeof AudioContext }).webkitAudioContext
+	);
+}
+
 export function LobbyScreen() {
 	const { room } = useRoom();
 	const phase = useRoomState((s) => s.phase);
@@ -43,6 +52,8 @@ export function LobbyScreen() {
 	const targetPlayers = useRoomState((s) => Number(s?.lobbyTargetPlayers ?? 4)) ?? 4;
 	const lobbyDeadlineEpochMs = useRoomState((s) => Number(s?.lobbyDeadlineEpochMs ?? 0)) ?? 0;
 	const [nowMs, setNowMs] = useState(() => Date.now());
+	const previousCountRef = useRef<number | null>(null);
+	const audioContextRef = useRef<AudioContext | null>(null);
 
 	useEffect(() => {
 		if (phase !== "lobby") {
@@ -76,6 +87,56 @@ export function LobbyScreen() {
 	const count = players.length || playerCount;
 	const remainingSeconds =
 		lobbyDeadlineEpochMs > 0 ? Math.max(0, Math.ceil((lobbyDeadlineEpochMs - nowMs) / 1000)) : 60;
+
+	useEffect(() => {
+		if (phase !== "lobby") {
+			return;
+		}
+
+		const previous = previousCountRef.current;
+		previousCountRef.current = count;
+		if (previous === null || count <= previous) {
+			return;
+		}
+
+		const AudioContextCtor = getAudioContextCtor();
+		if (!AudioContextCtor) {
+			return;
+		}
+		if (!audioContextRef.current || audioContextRef.current.state === "closed") {
+			audioContextRef.current = new AudioContextCtor();
+		}
+		const context = audioContextRef.current;
+		if (!context) {
+			return;
+		}
+		if (context.state === "suspended") {
+			void context.resume();
+		}
+		const now = context.currentTime;
+		const oscillator = context.createOscillator();
+		const gain = context.createGain();
+		oscillator.type = "triangle";
+		oscillator.frequency.setValueAtTime(1260, now);
+		oscillator.frequency.exponentialRampToValueAtTime(980, now + 0.05);
+		gain.gain.setValueAtTime(0.0001, now);
+		gain.gain.exponentialRampToValueAtTime(0.05, now + 0.004);
+		gain.gain.exponentialRampToValueAtTime(0.0001, now + 0.055);
+		oscillator.connect(gain);
+		gain.connect(context.destination);
+		oscillator.start(now);
+		oscillator.stop(now + 0.06);
+	}, [count, phase]);
+
+	useEffect(
+		() => () => {
+			if (audioContextRef.current) {
+				void audioContextRef.current.close();
+				audioContextRef.current = null;
+			}
+		},
+		[],
+	);
 
 	if (phase !== "lobby") {
 		return null;

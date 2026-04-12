@@ -36,6 +36,7 @@ export function prepareGameRoom(room: Room<any, GameState>): void {
 	room.onMessage("explosion_event", () => {});
 	room.onMessage("escape_sequence_event", () => {});
 	room.onMessage("round_end_summary", () => {});
+	room.onMessage("enforcer_outro_event", () => {});
 	room.onMessage("ticker_event", () => {});
 }
 

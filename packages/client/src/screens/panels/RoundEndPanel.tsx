@@ -33,9 +33,6 @@ export function RoundEndPanel({
 	onPlayAnotherRound?: (gameCode: string) => void;
 	onBackToStartScreen?: () => void;
 }) {
-	if (stage === "hidden" || !summary) {
-		return null;
-	}
 	const [mobileLayout, setMobileLayout] = useState(false);
 	useEffect(() => {
 		if (typeof window === "undefined") {
@@ -47,6 +44,9 @@ export function RoundEndPanel({
 		query.addEventListener("change", update);
 		return () => query.removeEventListener("change", update);
 	}, []);
+	if (stage === "hidden" || !summary) {
+		return null;
+	}
 	const transform =
 		stage === "pre-enter"
 			? "translate(-50%, -50%) translateX(120vw)"

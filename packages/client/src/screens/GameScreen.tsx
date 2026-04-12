@@ -6,6 +6,7 @@ import { schemaMapValues } from "../colyseus/schemaMap";
 import { GameScene } from "../game/GameScene";
 import { Ticker } from "../game/ticker";
 import { BriefingPanel } from "./panels/BriefingPanel";
+import { EnforcerNewspaperOutro } from "./panels/EnforcerNewspaperOutro";
 import { RoundEndPanel } from "./panels/RoundEndPanel";
 
 type BriefingStage = "hidden" | "pre-enter" | "center" | "exit";
@@ -44,6 +45,8 @@ export function GameScreen({
 	const [roundEndStage, setRoundEndStage] = useState<RoundEndStage>("hidden");
 	const [roundEndSummary, setRoundEndSummary] = useState<RoundEndSummary | null>(null);
 	const [escapeOutroDone, setEscapeOutroDone] = useState(false);
+	const [enforcerOutroActive, setEnforcerOutroActive] = useState(false);
+	const [enforcerOutroComplete, setEnforcerOutroComplete] = useState(false);
 	const [touchControlsEnabled, setTouchControlsEnabled] = useState(false);
 	const [touchInteractPressed, setTouchInteractPressed] = useState(false);
 	const [touchTrapPressed, setTouchTrapPressed] = useState(false);
@@ -163,6 +166,19 @@ export function GameScreen({
 	}, [room]);
 
 	useEffect(() => {
+		if (!room) {
+			return;
+		}
+		return room.onMessage("enforcer_outro_event", (message: GameServerMessages["enforcer_outro_event"]) => {
+			if (message.stage !== "start") {
+				return;
+			}
+			setEnforcerOutroComplete(false);
+			setEnforcerOutroActive(true);
+		});
+	}, [room]);
+
+	useEffect(() => {
 		let rafId = 0;
 		let frameCount = 0;
 		let sampleStart = performance.now();
@@ -220,17 +236,26 @@ export function GameScreen({
 		setRoundEndStage("hidden");
 		setRoundEndSummary(null);
 		setEscapeOutroDone(false);
+		setEnforcerOutroActive(false);
+		setEnforcerOutroComplete(false);
 	}, [phase]);
 
 	useEffect(() => {
 		if (roundEndStage !== "hidden") {
 			return;
 		}
-		if (!roundEndSummary || !escapeOutroDone) {
+		if (!roundEndSummary) {
+			return;
+		}
+		const ready =
+			roundEndSummary.winnerTeam === "shredders"
+				? escapeOutroDone
+				: enforcerOutroComplete;
+		if (!ready) {
 			return;
 		}
 		setRoundEndStage("pre-enter");
-	}, [escapeOutroDone, roundEndStage, roundEndSummary]);
+	}, [enforcerOutroComplete, escapeOutroDone, roundEndStage, roundEndSummary]);
 
 	useEffect(() => {
 		return () => {
@@ -386,6 +411,23 @@ export function GameScreen({
 					}}
 				>
 					Debug Escape
+				</button>
+				<button
+					type="button"
+					onClick={() => room?.send("debug_enforcer_outro_sequence", {})}
+					style={{
+						marginTop: 6,
+						marginLeft: 6,
+						padding: "0.18rem 0.45rem",
+						fontSize: "0.78rem",
+						borderRadius: 4,
+						border: "1px solid rgba(120, 150, 200, 0.45)",
+						background: "rgba(20, 28, 40, 0.75)",
+						color: "#dfe7f2",
+						cursor: "pointer",
+					}}
+				>
+					Debug Enforcer Outro
 				</button>
 				{onToggleDevBotsVisibility ? (
 					<button
@@ -585,6 +627,7 @@ export function GameScreen({
 				revealAll={revealAll}
 				spectatorReveal={localIsDead}
 				debugCameraEnabled={debugCameraEnabled}
+				controlsEnabled={!enforcerOutroActive && roundEndStage === "hidden"}
 				touchInputRef={touchMoveRef}
 				touchInteractPressed={touchInteractPressed}
 				touchTrapPressed={touchTrapPressed}
@@ -701,6 +744,12 @@ export function GameScreen({
 				</div>
 			) : null}
 			<BriefingPanel stage={briefingStage} team={team} />
+			<EnforcerNewspaperOutro
+				active={enforcerOutroActive}
+				onComplete={() => {
+					setEnforcerOutroComplete(true);
+				}}
+			/>
 			<RoundEndPanel
 				stage={roundEndStage}
 				summary={roundEndSummary}

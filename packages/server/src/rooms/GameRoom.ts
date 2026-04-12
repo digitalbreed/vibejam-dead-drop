@@ -305,17 +305,17 @@ export class GameRoom extends Room {
 	private pendingTrapPlacement = new Map<string, TrapPlacementCandidate>();
 	private deadKnockback = new Map<string, DeadKnockbackState>();
 	private keycardsPickedUpColors = new Set<string>();
-	private exitFoundBroadcasted = false;
 	private escapeSequence: EscapeSequenceState | null = null;
 	private pendingEscapeSequenceStart: PendingEscapeSequenceStart | null = null;
 	private lobbySkipRequested = false;
 	private teamBySessionId = new Map<string, GameTeam>();
 	private serverBots = new Map<string, ServerBotController>();
+	private roundWinner: GameTeam | null = null;
 	maxClients = 16;
 
 	messages = {
 		input: (client: Client, message: GameClientMessages["input"]) => {
-			if (this.escapeSequence) {
+			if (this.escapeSequence || this.roundWinner) {
 				this.input.set(client.sessionId, { x: 0, z: 0 });
 				return;
 			}
@@ -327,7 +327,7 @@ export class GameRoom extends Room {
 			this.input.set(client.sessionId, { x: nx, z: nz });
 		},
 		interact: (client: Client, _message: GameClientMessages["interact"]) => {
-			if (this.escapeSequence) {
+			if (this.escapeSequence || this.roundWinner) {
 				return;
 			}
 			if (this.state.phase !== "playing") {
@@ -336,14 +336,14 @@ export class GameRoom extends Room {
 			this.handleInteract(client);
 		},
 		interact_hold: (client: Client, message: GameClientMessages["interact_hold"]) => {
-			if (this.escapeSequence) {
+			if (this.escapeSequence || this.roundWinner) {
 				return;
 			}
 			const active = !!message?.active;
 			this.handleInteractHold(client, active);
 		},
 		trap_hold: (client: Client, message: GameClientMessages["trap_hold"]) => {
-			if (this.escapeSequence) {
+			if (this.escapeSequence || this.roundWinner) {
 				return;
 			}
 			const active = !!message?.active;
@@ -351,6 +351,12 @@ export class GameRoom extends Room {
 		},
 		debug_escape_ladder_sequence: (client: Client, _message: GameClientMessages["debug_escape_ladder_sequence"]) => {
 			this.handleDebugEscapeSequence(client.sessionId);
+		},
+		debug_enforcer_outro_sequence: (
+			client: Client,
+			_message: GameClientMessages["debug_enforcer_outro_sequence"],
+		) => {
+			this.handleDebugEnforcerOutroSequence(client.sessionId);
 		},
 		lobby_skip_wait: (client: Client, _message: GameClientMessages["lobby_skip_wait"]) => {
 			if (this.state.phase !== "lobby") {
@@ -392,6 +398,8 @@ export class GameRoom extends Room {
 			}
 			this.state.gameCode = generated;
 		}
+		// Matchmaking joins by `gameCode` rely on room metadata, not room state.
+		await this.setMetadata({ gameCode: this.state.gameCode });
 		const targetPlayers = Math.max(1, Math.min(16, Math.floor(TARGET_PLAYERS || 4)));
 		this.state.lobbyTargetPlayers = targetPlayers;
 		this.state.lobbyDeadlineEpochMs = 0;
@@ -415,7 +423,7 @@ export class GameRoom extends Room {
 			),
 		];
 		this.setSimulationInterval((deltaTime) => this.tick(deltaTime), 1000 / 20);
-		this.exitFoundBroadcasted = false;
+		this.hasBroadcastExitFound = false;
 		this.lobbySkipRequested = false;
 	}
 
@@ -489,6 +497,7 @@ export class GameRoom extends Room {
 		this.serverBots.clear();
 		this.escapeSequence = null;
 		this.pendingEscapeSequenceStart = null;
+		this.roundWinner = null;
 	}
 
 	private tryStartMatch() {
@@ -707,6 +716,15 @@ export class GameRoom extends Room {
 		if (this.state.phase !== "playing") {
 			return;
 		}
+		if (this.roundWinner) {
+			for (const [sessionId, player] of this.state.players.entries()) {
+				if (!player.isAlive) {
+					continue;
+				}
+				this.input.set(sessionId, { x: 0, z: 0 });
+			}
+			return;
+		}
 		this.tryStartPendingEscapeSequence(nowMs);
 		if (this.escapeSequence) {
 			this.tickEscapeSequence(deltaMs);
@@ -793,7 +811,7 @@ export class GameRoom extends Room {
 		this.vaultControllers.clear();
 		this.fileCabinetControllers.clear();
 		this.escapeLadderControllers.clear();
-		this.exitFoundBroadcasted = false;
+		this.hasBroadcastExitFound = false;
 		this.createVaults();
 		this.createDoors();
 		this.createKeycards();
@@ -1574,8 +1592,8 @@ export class GameRoom extends Room {
 				const carriedSuitcase = this.findCarriedSuitcase(sessionId);
 				if (carriedSuitcase) {
 					carriedSuitcase.setUsed();
-					if (!this.exitFoundBroadcasted) {
-						this.exitFoundBroadcasted = true;
+					if (!this.hasBroadcastExitFound) {
+						this.hasBroadcastExitFound = true;
 						this.emitTickerEvent({ event: "exit_found" });
 					}
 					this.queueEscapeSequenceStart(sessionId, controller.ladder.id, false);
@@ -1610,6 +1628,20 @@ export class GameRoom extends Room {
 		player.z = ladderController.placementSnapshot.z - outward.z * ESCAPE_LADDER_APPROACH_OFFSET;
 		this.input.set(sessionId, { x: 0, z: 0 });
 		this.queueEscapeSequenceStart(sessionId, ladderController.ladder.id, true);
+	}
+
+	private handleDebugEnforcerOutroSequence(sessionId: string) {
+		if (process.env.NODE_ENV === "production") {
+			return;
+		}
+		if (this.state.phase !== "playing" || this.roundWinner || this.escapeSequence) {
+			return;
+		}
+		const requester = this.state.players.get(sessionId);
+		if (!requester || !requester.isAlive) {
+			return;
+		}
+		this.startEnforcerOutro();
 	}
 
 	private tryStartPendingEscapeSequence(nowMs: number): void {
@@ -1824,6 +1856,7 @@ export class GameRoom extends Room {
 			cameraZ: sequence.cameraZ,
 		});
 		if (stage === "complete") {
+			this.roundWinner = "shredders";
 			this.emitRoundEndSummary("shredders");
 		}
 	}
@@ -1844,7 +1877,10 @@ export class GameRoom extends Room {
 		});
 		this.broadcast("round_end_summary", {
 			winnerTeam,
-			punchline: "They got away once again, and the paperwork vanished with them.",
+			punchline:
+				winnerTeam === "enforcers"
+					? "The Island Files hit the front page, and the entire administration collapsed under the evidence."
+					: "They got away once again, and the paperwork vanished with them.",
 			players,
 		});
 	}
@@ -2075,6 +2111,47 @@ export class GameRoom extends Room {
 			agentName: player.name,
 		};
 		this.emitTickerEvent(payload);
+		this.checkRoundEndConditions();
+	}
+
+	private checkRoundEndConditions(): void {
+		if (this.roundWinner || this.state.phase !== "playing" || this.escapeSequence) {
+			return;
+		}
+		let aliveShredders = 0;
+		let aliveEnforcers = 0;
+		for (const [sessionId, player] of this.state.players.entries()) {
+			if (!player.isAlive) {
+				continue;
+			}
+			const team = this.teamBySessionId.get(sessionId);
+			if (team === "shredders") {
+				aliveShredders += 1;
+			} else if (team === "enforcers") {
+				aliveEnforcers += 1;
+			}
+		}
+		if (aliveShredders <= 0 && aliveEnforcers > 0) {
+			this.startEnforcerOutro();
+		}
+	}
+
+	private startEnforcerOutro(): void {
+		if (this.roundWinner || this.state.phase !== "playing") {
+			return;
+		}
+		this.roundWinner = "enforcers";
+		for (const [sessionId, player] of this.state.players.entries()) {
+			this.input.set(sessionId, { x: 0, z: 0 });
+			this.interactionHold.delete(sessionId);
+			this.trapHold.delete(sessionId);
+			this.pendingTrapPlacement.delete(sessionId);
+			if (player.isInteracting) {
+				this.cancelInteraction(sessionId, player);
+			}
+		}
+		this.broadcast("enforcer_outro_event", { stage: "start" });
+		this.emitRoundEndSummary("enforcers");
 	}
 
 	private buildServerBotSnapshot(sessionId: string, team: GameTeam, nowMs: number): BotPerceptionSnapshot {

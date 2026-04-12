@@ -25,6 +25,7 @@ export type GameClientMessages = {
 	trap_hold: { active: boolean };
 	lobby_skip_wait: {};
 	debug_escape_ladder_sequence: {};
+	debug_enforcer_outro_sequence: {};
 };
 
 /** Server -> client transient gameplay events. */
@@ -94,6 +95,9 @@ export type GameServerMessages = {
 			team: GameTeam;
 			isAlive: boolean;
 		}>;
+	};
+	enforcer_outro_event: {
+		stage: "start";
 	};
 	ticker_event:
 		| {

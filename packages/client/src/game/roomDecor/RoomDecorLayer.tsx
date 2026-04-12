@@ -246,7 +246,7 @@ function FrameMesh({
 	}, [portraitMaterial]);
 
 	return (
-		<group position={[frame.x, FRAME_CENTER_Y, frame.z]} rotation={[0, rotationY, 0]} visible={visible}>
+		<group position={[frame.x, FRAME_CENTER_Y, frame.z]} rotation={[0, rotationY, frame.tiltRad]} visible={visible}>
 			<FrameRing
 				outlined={outlined}
 				outerWidth={FRAME_OUTER_WIDTH}

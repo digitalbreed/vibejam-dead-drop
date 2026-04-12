@@ -16,7 +16,7 @@ const BRIEFING_BY_TEAM: Record<GameTeam, BriefingCopy> = {
 	enforcers: {
 		teamLabel: "ENFORCERS",
 		mission:
-			"Protect the office's deeply suspicious paper trail. Stall, harass, and make every Shredder miss their fake lunch break.",
+			"Expose the Island Files. Hunt down every Shredder, secure the evidence, and force the scandal onto tomorrow's front page.",
 	},
 };
 
@@ -91,4 +91,3 @@ export function BriefingPanel({ stage, team }: { stage: BriefingStage; team: Gam
 		</div>
 	);
 }
-

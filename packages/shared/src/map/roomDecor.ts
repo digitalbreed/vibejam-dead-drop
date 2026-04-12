@@ -43,6 +43,7 @@ export interface PictureFramePlacement {
 	z: number;
 	wall: FrameWallSide;
 	portraitIndex: number;
+	tiltRad: number;
 }
 
 export interface RoomDecorPlacements {
@@ -313,6 +314,7 @@ export function generateRoomDecorPlacements(layout: MapLayout): RoomDecorPlaceme
 			z: candidate.z,
 			wall: candidate.wall,
 			portraitIndex,
+			tiltRad: (rng() * 4 - 2) * (Math.PI / 180),
 		});
 		portraitIndex++;
 	}

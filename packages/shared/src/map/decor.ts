@@ -3,6 +3,9 @@ import { canonicalEdgeKey, layoutRoomMap, type MapCell, type MapLayout } from ".
 export const FLOOR_STYLE_COUNT = 7;
 export const WALL_STYLE_COUNT = 7;
 export const LONG_CORRIDOR_STYLE = FLOOR_STYLE_COUNT - 1;
+export const DECOR_PORTRAIT_ATLAS_COLUMNS = 4;
+export const DECOR_PORTRAIT_ATLAS_ROWS = 3;
+export const DECOR_PORTRAIT_COUNT = DECOR_PORTRAIT_ATLAS_COLUMNS * DECOR_PORTRAIT_ATLAS_ROWS;
 
 export type DecorIds = {
 	floorStyleByCell: Map<string, number>;
