@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import type { GameTeam } from "@vibejam/shared";
 import nipplejs from "nipplejs";
 import { getLatestRoleAssignment, useRoom, useRoomState } from "../colyseus/roomContext";
@@ -85,6 +85,9 @@ export function GameScreen({
 		localPlayer.interactionDurationMs > 0
 			? Math.max(0, Math.min(1, localPlayer.interactionElapsedMs / localPlayer.interactionDurationMs))
 			: 0;
+	const dismissBriefing = useCallback(() => {
+		setBriefingStage((current) => (current === "center" ? "exit" : current));
+	}, []);
 
 	useEffect(() => {
 		const hasTouch =
@@ -116,6 +119,7 @@ export function GameScreen({
 			fadeTime: 100,
 		});
 		const handleMove = (event: unknown) => {
+			dismissBriefing();
 			const data = (event as { data?: { vector?: { x?: number; y?: number } } })?.data;
 			if (!data?.vector) {
 				return;
@@ -136,7 +140,7 @@ export function GameScreen({
 			joystick.off("end", handleEnd);
 			joystick.destroy();
 		};
-	}, [touchControlsEnabled]);
+	}, [dismissBriefing, touchControlsEnabled]);
 
 	useEffect(() => {
 		const cached = getLatestRoleAssignment(room);
@@ -242,12 +246,18 @@ export function GameScreen({
 		if (briefingStage !== "center") {
 			return;
 		}
-		const onKeyDown = () => {
-			setBriefingStage("exit");
-		};
+		const onKeyDown = () => dismissBriefing();
+		const onPointerDown = () => dismissBriefing();
+		const onTouchStart = () => dismissBriefing();
 		window.addEventListener("keydown", onKeyDown);
-		return () => window.removeEventListener("keydown", onKeyDown);
-	}, [briefingStage]);
+		window.addEventListener("pointerdown", onPointerDown);
+		window.addEventListener("touchstart", onTouchStart, { passive: true });
+		return () => {
+			window.removeEventListener("keydown", onKeyDown);
+			window.removeEventListener("pointerdown", onPointerDown);
+			window.removeEventListener("touchstart", onTouchStart);
+		};
+	}, [briefingStage, dismissBriefing]);
 
 	useEffect(() => {
 		if (briefingStage !== "exit") {
@@ -567,7 +577,12 @@ export function GameScreen({
 							backdropFilter: "blur(1px)",
 							pointerEvents: "auto",
 							touchAction: "none",
+							userSelect: "none",
+							WebkitUserSelect: "none",
+							WebkitTouchCallout: "none",
+							WebkitTapHighlightColor: "transparent",
 						}}
+						onContextMenu={(event) => event.preventDefault()}
 						ref={joystickZoneRef}
 					/>
 					<div
@@ -585,11 +600,13 @@ export function GameScreen({
 							type="button"
 							onPointerDown={(event) => {
 								event.preventDefault();
+								dismissBriefing();
 								setTouchTrapPressed(true);
 							}}
 							onPointerUp={() => setTouchTrapPressed(false)}
 							onPointerCancel={() => setTouchTrapPressed(false)}
 							onPointerLeave={() => setTouchTrapPressed(false)}
+							onContextMenu={(event) => event.preventDefault()}
 							style={{
 								width: 110,
 								height: 58,
@@ -603,6 +620,10 @@ export function GameScreen({
 								textTransform: "uppercase",
 								pointerEvents: "auto",
 								touchAction: "none",
+								userSelect: "none",
+								WebkitUserSelect: "none",
+								WebkitTouchCallout: "none",
+								WebkitTapHighlightColor: "transparent",
 							}}
 						>
 							Trap
@@ -611,11 +632,13 @@ export function GameScreen({
 							type="button"
 							onPointerDown={(event) => {
 								event.preventDefault();
+								dismissBriefing();
 								setTouchInteractPressed(true);
 							}}
 							onPointerUp={() => setTouchInteractPressed(false)}
 							onPointerCancel={() => setTouchInteractPressed(false)}
 							onPointerLeave={() => setTouchInteractPressed(false)}
+							onContextMenu={(event) => event.preventDefault()}
 							style={{
 								width: 110,
 								height: 58,
@@ -629,6 +652,10 @@ export function GameScreen({
 								textTransform: "uppercase",
 								pointerEvents: "auto",
 								touchAction: "none",
+								userSelect: "none",
+								WebkitUserSelect: "none",
+								WebkitTouchCallout: "none",
+								WebkitTapHighlightColor: "transparent",
 							}}
 						>
 							Interact
@@ -690,7 +717,7 @@ export function GameScreen({
 							{briefingCopy.mission}
 						</p>
 						<div style={{ marginTop: "1rem", opacity: 0.74, fontSize: "0.86rem", textTransform: "uppercase", letterSpacing: "0.11em" }}>
-							Press any key to continue
+							Press any key or tap to continue
 						</div>
 					</div>
 				</div>

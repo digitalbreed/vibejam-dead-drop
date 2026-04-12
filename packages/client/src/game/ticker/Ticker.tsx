@@ -24,7 +24,7 @@ export function Ticker() {
 				right: 0,
 				height: bandHeight,
 				overflow: "hidden",
-				zIndex: 10,
+				zIndex: 6,
 				opacity,
 				transition: phase === "fade-in" || phase === "fade-out" ? "opacity 300ms ease-in-out" : "none",
 				boxShadow: "0 -4px 12px rgba(0, 0, 0, 0.3)",
