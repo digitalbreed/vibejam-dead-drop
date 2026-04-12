@@ -195,6 +195,14 @@ function addFeatureExits(exits: ExitRect[], rect: Rect, incoming: Direction, fir
 	}
 }
 
+function isForbiddenVaultBackConnection(ix1: number, iz1: number, ix2: number, iz2: number): boolean {
+	const edge = canonicalEdgeKey(ix1, iz1, ix2, iz2);
+	return (
+		edge === canonicalEdgeKey(VAULT_TILE_IX, VAULT_TILE_IZ, VAULT_TILE_IX, VAULT_TILE_IZ - 1) ||
+		edge === canonicalEdgeKey(VAULT_TILE_IX, VAULT_TILE_IZ - 1, VAULT_TILE_IX, VAULT_TILE_IZ - 2)
+	);
+}
+
 export function generateMapLayout(seed: number, maxGridDistance: number): MapLayout {
 	const rng = mulberry32(seed);
 	const occupied = new Map<string, CellData>();
@@ -222,6 +230,9 @@ export function generateMapLayout(seed: number, maxGridDistance: number): MapLay
 		const parentKey = key(parentX, parentZ);
 		const parent = occupied.get(parentKey);
 		if (!parent) {
+			return false;
+		}
+		if (isForbiddenVaultBackConnection(parentX, parentZ, x, z)) {
 			return false;
 		}
 
@@ -341,8 +352,7 @@ export function generateMapLayout(seed: number, maxGridDistance: number): MapLay
 		maxZ = Math.max(maxZ, wz + halfCell);
 	}
 
-	// Keep the wall line behind the vault solid: remove any generated door edges there
-	// so layout-based wall/collision/rendering stays consistent with door placement rules.
+	// Defensive cleanup in case future generation changes add these edges indirectly.
 	doorEdges.delete(canonicalEdgeKey(VAULT_TILE_IX, VAULT_TILE_IZ, VAULT_TILE_IX, VAULT_TILE_IZ - 1));
 	doorEdges.delete(canonicalEdgeKey(VAULT_TILE_IX, VAULT_TILE_IZ - 1, VAULT_TILE_IX, VAULT_TILE_IZ - 2));
 
