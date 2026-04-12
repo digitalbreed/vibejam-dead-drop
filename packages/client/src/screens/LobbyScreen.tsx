@@ -160,7 +160,7 @@ export function LobbyScreen() {
 						textAlign: "center",
 					}}
 				>
-					Join code: <strong>{gameCode || room?.roomId || "N/A"}</strong>
+					Join code: <strong>{gameCode || "N/A"}</strong>
 				</p>
 				<p
 					style={{

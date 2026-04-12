@@ -20,6 +20,7 @@ import {
 	buildClosedDoorWalls,
 	buildCollisionWalls,
 	buildFileCabinetCollisionWalls,
+	buildTableCollisionWalls,
 	buildEscapeLadderCollisionWalls,
 	CELL_SIZE,
 	layoutRoomMap,
@@ -27,6 +28,7 @@ import {
 	generateEscapeLadderPlacement,
 	generateKeycardPlacements,
 	generateMapLayout,
+	generateRoomDecorPlacements,
 	moveWithCollision,
 	type BotCommand,
 	type BotEventEnvelope,
@@ -66,6 +68,8 @@ const DEAD_KNOCKBACK_SPEED = 11.5;
 const TRAP_EXPLOSION_AUDIO_RANGE = Number(process.env.TRAP_EXPLOSION_AUDIO_RANGE ?? 26);
 const MAX_OPERATOR_NAME_LENGTH = 24;
 const MAX_GAME_CODE_LENGTH = 24;
+const DEFAULT_GAME_CODE_LENGTH = 6;
+const GAME_CODE_ALPHABET = "ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789";
 const AGENT_PREFIXES = [
 	"Ghost",
 	"Phantom",
@@ -229,6 +233,19 @@ function normalizeGameCode(raw: unknown): string {
 	return compact.replace(/[^A-Z0-9]/g, "").slice(0, MAX_GAME_CODE_LENGTH);
 }
 
+function buildRandomGameCode(length: number = DEFAULT_GAME_CODE_LENGTH): string {
+	let result = "";
+	for (let i = 0; i < length; i++) {
+		result += GAME_CODE_ALPHABET[Math.floor(Math.random() * GAME_CODE_ALPHABET.length)]!;
+	}
+	return result;
+}
+
+async function hasActiveGameCode(roomName: string, gameCode: string): Promise<boolean> {
+	const existing = await matchMaker.query({ name: roomName, gameCode });
+	return existing.length > 0;
+}
+
 function randomItem<T>(list: readonly T[]): T {
 	return list[Math.floor(Math.random() * list.length)]!;
 }
@@ -349,17 +366,32 @@ export class GameRoom extends Room {
 	};
 
 	async onCreate(options: JoinOptions) {
-		const gameCode = normalizeGameCode(options?.gameCode);
-		if (gameCode) {
-			const existing = await matchMaker.query({ name: this.roomName, gameCode });
-			if (existing.length > 0) {
+		const requestedGameCode = normalizeGameCode(options?.gameCode);
+		if (requestedGameCode) {
+			if (await hasActiveGameCode(this.roomName, requestedGameCode)) {
 				throw new ServerError(
 					ErrorCode.MATCHMAKE_INVALID_CRITERIA,
-					`room code "${gameCode}" is already active`,
+					`room code "${requestedGameCode}" is already active`,
 				);
 			}
+			this.state.gameCode = requestedGameCode;
+		} else {
+			let generated = "";
+			for (let attempt = 0; attempt < 32; attempt++) {
+				const candidate = buildRandomGameCode();
+				if (!(await hasActiveGameCode(this.roomName, candidate))) {
+					generated = candidate;
+					break;
+				}
+			}
+			if (!generated) {
+				throw new ServerError(
+					ErrorCode.MATCHMAKE_UNHANDLED,
+					"Unable to allocate a unique room code. Please try again.",
+				);
+			}
+			this.state.gameCode = generated;
 		}
-		this.state.gameCode = gameCode;
 		const targetPlayers = Math.max(1, Math.min(16, Math.floor(TARGET_PLAYERS || 4)));
 		this.state.lobbyTargetPlayers = targetPlayers;
 		this.state.lobbyDeadlineEpochMs = 0;
@@ -374,6 +406,7 @@ export class GameRoom extends Room {
 			...this.staticWalls,
 			...buildVaultCollisionWalls(Array.from(this.state.vaults.values(), (vault) => ({ x: vault.x, z: vault.z }))),
 			...buildFileCabinetCollisionWalls(generateFileCabinetPlacements(this.layout)),
+			...buildTableCollisionWalls(generateRoomDecorPlacements(this.layout).tables),
 			...buildEscapeLadderCollisionWalls(
 				(() => {
 					const placement = generateEscapeLadderPlacement(this.layout);
@@ -1056,7 +1089,12 @@ export class GameRoom extends Room {
 		if (player.isInteracting) {
 			return;
 		}
-		const candidate = this.findInteractionCandidate(player);
+		let candidate = this.findInteractionCandidate(player);
+		const carryingSuitcase = this.findCarriedSuitcase(sessionId);
+		if (carryingSuitcase) {
+			const ladderOnly = this.findNearestEscapeLadderInteraction(player);
+			candidate = ladderOnly ?? null;
+		}
 		if (!candidate) {
 			onError?.();
 			return;
@@ -1067,6 +1105,9 @@ export class GameRoom extends Room {
 				this.triggerTrap(trap, sessionId);
 				return;
 			}
+		}
+		if (carryingSuitcase && candidate.kind === "escape_ladder") {
+			this.cancelNonCarrierLadderInteractions(candidate.id, sessionId);
 		}
 		if (this.isInteractionTargetBusy(candidate.kind, candidate.id, sessionId)) {
 			onError?.();
@@ -1148,6 +1189,33 @@ export class GameRoom extends Room {
 			return { kind: "file_cabinet", id: nearestCabinet!.cabinet.id, durationMs: INTERACTION_DURATION_MS };
 		}
 		return { kind: "vault", id: nearestVault!.vault.id, durationMs: INTERACTION_DURATION_MS };
+	}
+
+	private findNearestEscapeLadderInteraction(
+		player: Player,
+	): { kind: "escape_ladder"; id: string; durationMs: number } | null {
+		let nearestLadder: EscapeLadderController | null = null;
+		let nearestLadderDistSq = Infinity;
+		for (const controller of this.escapeLadderControllers.values()) {
+			if (!controller.canCompleteInteraction(player)) {
+				continue;
+			}
+			const dx = player.x - controller.placementSnapshot.x;
+			const dz = player.z - controller.placementSnapshot.z;
+			const distSq = dx * dx + dz * dz;
+			if (distSq < nearestLadderDistSq) {
+				nearestLadderDistSq = distSq;
+				nearestLadder = controller;
+			}
+		}
+		if (!nearestLadder) {
+			return null;
+		}
+		return {
+			kind: "escape_ladder",
+			id: nearestLadder.ladder.id,
+			durationMs: INTERACTION_DURATION_MS,
+		};
 	}
 
 	private handleTrapHold(client: Client, active: boolean) {
@@ -1755,6 +1823,30 @@ export class GameRoom extends Room {
 			cameraX: sequence.cameraX,
 			cameraZ: sequence.cameraZ,
 		});
+		if (stage === "complete") {
+			this.emitRoundEndSummary("shredders");
+		}
+	}
+
+	private emitRoundEndSummary(winnerTeam: GameTeam): void {
+		const players = Array.from(this.state.players.entries(), ([sessionId, player]) => {
+			const team = this.teamBySessionId.get(sessionId) ?? "shredders";
+			const name =
+				typeof player.name === "string" && player.name.trim().length > 0
+					? player.name.trim()
+					: "Agent";
+			return {
+				sessionId,
+				name,
+				team,
+				isAlive: player.isAlive !== false,
+			};
+		});
+		this.broadcast("round_end_summary", {
+			winnerTeam,
+			punchline: "They got away once again, and the paperwork vanished with them.",
+			players,
+		});
 	}
 
 	private completeTrapPlacement(sessionId: string, player: Player) {
@@ -1877,6 +1969,24 @@ export class GameRoom extends Room {
 			return true;
 		}
 		return false;
+	}
+
+	private cancelNonCarrierLadderInteractions(targetId: string, preservingSessionId: string): void {
+		for (const [sessionId, other] of this.state.players.entries()) {
+			if (sessionId === preservingSessionId) {
+				continue;
+			}
+			if (!other.isAlive || !other.isInteracting) {
+				continue;
+			}
+			if (other.interactionKind !== "escape_ladder" || other.interactionTargetId !== targetId) {
+				continue;
+			}
+			if (this.findCarriedSuitcase(sessionId)) {
+				continue;
+			}
+			this.cancelInteraction(sessionId, other);
+		}
 	}
 
 	private findFirstUnusedTrapPointSlot(ownerSessionId: string): number {

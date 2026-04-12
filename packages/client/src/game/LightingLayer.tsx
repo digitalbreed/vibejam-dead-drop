@@ -59,7 +59,7 @@ function chooseIndices(count: number, targetCount: number, rng: () => number): n
 	return [...chosen].sort((a, b) => a - b);
 }
 
-function buildFixtures(layout: MapLayout, areaInfo: AreaInfo): Fixture[] {
+export function buildLightingFixtures(layout: MapLayout, areaInfo: AreaInfo): Fixture[] {
 	const occupancy = layoutOccupancy(layout);
 	const cellData = new Map(layout.cells.map((cell) => [`${cell.ix},${cell.iz}`, cell] as const));
 	const cellsByArea = new Map<string, { ix: number; iz: number }[]>();
@@ -249,7 +249,7 @@ export function LightingLayer({
 	spectatorRevealedAreas?: ReadonlySet<string> | null;
 	outlinesEnabled?: boolean;
 }) {
-	const fixtures = useMemo(() => buildFixtures(layout, areaInfo), [areaInfo, layout]);
+	const fixtures = useMemo(() => buildLightingFixtures(layout, areaInfo), [areaInfo, layout]);
 	const spectatorMode = spectatorRevealedAreas !== null;
 
 	return (

@@ -85,6 +85,16 @@ export type GameServerMessages = {
 		cameraX: number;
 		cameraZ: number;
 	};
+	round_end_summary: {
+		winnerTeam: GameTeam;
+		punchline: string;
+		players: Array<{
+			sessionId: string;
+			name: string;
+			team: GameTeam;
+			isAlive: boolean;
+		}>;
+	};
 	ticker_event:
 		| {
 				event: "keycard_first_pickup";

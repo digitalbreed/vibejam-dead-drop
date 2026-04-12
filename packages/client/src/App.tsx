@@ -96,7 +96,13 @@ function DevBotsLoader({ visible, botsPaused }: { visible: boolean; botsPaused: 
 	return <Host visible={visible} botsPaused={botsPaused} />;
 }
 
-function ConnectedFlow() {
+function ConnectedFlow({
+	onPlayAnotherRound,
+	onBackToStartScreen,
+}: {
+	onPlayAnotherRound: (gameCode: string) => void;
+	onBackToStartScreen: () => void;
+}) {
 	const { room, error, isConnecting } = useRoom();
 	const phase = useRoomState((s) => s.phase);
 	const [devBotsVisible, setDevBotsVisible] = useState(false);
@@ -195,6 +201,22 @@ function ConnectedFlow() {
 					botsPaused={botsPaused}
 					onToggleDevBotsVisibility={() => setDevBotsVisible((current) => !current)}
 					onToggleBotsPaused={() => setBotsPaused((current) => !current)}
+					onPlayAnotherRound={async (gameCode) => {
+						try {
+							await room.leave();
+						} catch {
+							// best effort; reconnect path below still updates UI state
+						}
+						onPlayAnotherRound(gameCode);
+					}}
+					onBackToStartScreen={async () => {
+						try {
+							await room.leave();
+						} catch {
+							// best effort; return to title anyway
+						}
+						onBackToStartScreen();
+					}}
 				/>
 			)}
 			<DevBotsLoader visible={devBotsVisible} botsPaused={botsPaused} />
@@ -204,6 +226,7 @@ function ConnectedFlow() {
 
 export default function App() {
 	const [joinRequested, setJoinRequested] = useState(false);
+	const [connectionAttempt, setConnectionAttempt] = useState(0);
 	const [joinParams, setJoinParams] = useState<JoinParams>({
 		operatorName: "",
 		gameCode: "",
@@ -216,13 +239,13 @@ export default function App() {
 		async () => {
 			const gameCode = normalizeGameCode(joinParams.gameCode);
 			try {
-				const options = {
-					mapMaxDistance,
-					operatorName: joinParams.operatorName,
-					gameCode,
-				};
 				let room;
 				if (gameCode.length > 0) {
+					const options = {
+						mapMaxDistance,
+						operatorName: joinParams.operatorName,
+						gameCode,
+					};
 					try {
 						room = await colyseusClient.join("game_room", options, GameState);
 					} catch (joinError) {
@@ -232,7 +255,14 @@ export default function App() {
 						room = await colyseusClient.create("game_room", options, GameState);
 					}
 				} else {
-					room = await colyseusClient.joinOrCreate("game_room", options, GameState);
+					room = await colyseusClient.joinOrCreate(
+						"game_room",
+						{
+							mapMaxDistance,
+							operatorName: joinParams.operatorName,
+						},
+						GameState,
+					);
 				}
 				prepareGameRoom(room);
 				return room;
@@ -256,9 +286,21 @@ export default function App() {
 			{joinRequested && (
 				<RoomProvider
 					connect={connectMainRoom}
-					deps={[joinRequested]}
+					deps={[joinRequested, joinParams.operatorName, joinParams.gameCode, connectionAttempt]}
 				>
-					<ConnectedFlow />
+					<ConnectedFlow
+						onPlayAnotherRound={(gameCode) => {
+							setJoinParams((current) => ({
+								operatorName: current.operatorName,
+								gameCode,
+							}));
+							setConnectionAttempt((current) => current + 1);
+							setJoinRequested(true);
+						}}
+						onBackToStartScreen={() => {
+							setJoinRequested(false);
+						}}
+					/>
 				</RoomProvider>
 			)}
 		</>

@@ -1,39 +1,24 @@
 import { useCallback, useEffect, useRef, useState } from "react";
-import type { GameTeam } from "@vibejam/shared";
+import type { GameServerMessages, GameTeam } from "@vibejam/shared";
 import nipplejs from "nipplejs";
 import { getLatestRoleAssignment, useRoom, useRoomState } from "../colyseus/roomContext";
 import { schemaMapValues } from "../colyseus/schemaMap";
 import { GameScene } from "../game/GameScene";
 import { Ticker } from "../game/ticker";
+import { BriefingPanel } from "./panels/BriefingPanel";
+import { RoundEndPanel } from "./panels/RoundEndPanel";
 
 type BriefingStage = "hidden" | "pre-enter" | "center" | "exit";
-
-type BriefingCopy = {
-	teamLabel: string;
-	mission: string;
-	color: string;
-};
-
-const BRIEFING_BY_TEAM: Record<GameTeam, BriefingCopy> = {
-	shredders: {
-		teamLabel: "SHREDDERS",
-		color: "#FF0000",
-		mission:
-			"Find the keycards, crack the vault, and drag the briefcase to the exit before Enforcers ask awkward questions.",
-	},
-	enforcers: {
-		teamLabel: "ENFORCERS",
-		color: "#0015BC",
-		mission:
-			"Protect the office's deeply suspicious paper trail. Stall, harass, and make every Shredder miss their fake lunch break.",
-	},
-};
+type RoundEndStage = "hidden" | "pre-enter" | "center";
+type RoundEndSummary = GameServerMessages["round_end_summary"];
 
 type GameScreenProps = {
 	devBotsVisible?: boolean;
 	botsPaused?: boolean;
 	onToggleDevBotsVisibility?: () => void;
 	onToggleBotsPaused?: () => void;
+	onPlayAnotherRound?: (gameCode: string) => void;
+	onBackToStartScreen?: () => void;
 };
 
 export function GameScreen({
@@ -41,6 +26,8 @@ export function GameScreen({
 	botsPaused = false,
 	onToggleDevBotsVisibility,
 	onToggleBotsPaused,
+	onPlayAnotherRound,
+	onBackToStartScreen,
 }: GameScreenProps) {
 	const isDevMode = import.meta.env.DEV;
 	const { room } = useRoom();
@@ -54,6 +41,9 @@ export function GameScreen({
 	const [pingMs, setPingMs] = useState<number | null>(null);
 	const [team, setTeam] = useState<GameTeam | null>(null);
 	const [briefingStage, setBriefingStage] = useState<BriefingStage>("hidden");
+	const [roundEndStage, setRoundEndStage] = useState<RoundEndStage>("hidden");
+	const [roundEndSummary, setRoundEndSummary] = useState<RoundEndSummary | null>(null);
+	const [escapeOutroDone, setEscapeOutroDone] = useState(false);
 	const [touchControlsEnabled, setTouchControlsEnabled] = useState(false);
 	const [touchInteractPressed, setTouchInteractPressed] = useState(false);
 	const [touchTrapPressed, setTouchTrapPressed] = useState(false);
@@ -61,6 +51,7 @@ export function GameScreen({
 	const joystickZoneRef = useRef<HTMLDivElement | null>(null);
 	const touchMoveRef = useRef({ x: 0, z: 0 });
 	const mapSeed = useRoomState((s) => s.mapSeed);
+	const gameCode = useRoomState((s) => (typeof s?.gameCode === "string" ? s.gameCode : "")) ?? "";
 	const getPlayerBySessionId = (source: unknown, sessionId: string): any => {
 		if (!source) {
 			return undefined;
@@ -90,12 +81,14 @@ export function GameScreen({
 	}, []);
 
 	useEffect(() => {
-		const hasTouch =
-			typeof window !== "undefined" &&
-			("ontouchstart" in window ||
-				navigator.maxTouchPoints > 0 ||
-				window.matchMedia("(pointer: coarse)").matches);
-		setTouchControlsEnabled(hasTouch);
+		if (typeof window === "undefined") {
+			return;
+		}
+		const mediaQuery = window.matchMedia("(hover: none) and (pointer: coarse)");
+		const update = () => setTouchControlsEnabled(mediaQuery.matches);
+		update();
+		mediaQuery.addEventListener("change", update);
+		return () => mediaQuery.removeEventListener("change", update);
 	}, []);
 
 	useEffect(() => {
@@ -161,6 +154,15 @@ export function GameScreen({
 	}, [room]);
 
 	useEffect(() => {
+		if (!room) {
+			return;
+		}
+		return room.onMessage("round_end_summary", (message: RoundEndSummary) => {
+			setRoundEndSummary(message);
+		});
+	}, [room]);
+
+	useEffect(() => {
 		let rafId = 0;
 		let frameCount = 0;
 		let sampleStart = performance.now();
@@ -215,7 +217,20 @@ export function GameScreen({
 		}
 		setTeam(null);
 		setBriefingStage("hidden");
+		setRoundEndStage("hidden");
+		setRoundEndSummary(null);
+		setEscapeOutroDone(false);
 	}, [phase]);
+
+	useEffect(() => {
+		if (roundEndStage !== "hidden") {
+			return;
+		}
+		if (!roundEndSummary || !escapeOutroDone) {
+			return;
+		}
+		setRoundEndStage("pre-enter");
+	}, [escapeOutroDone, roundEndStage, roundEndSummary]);
 
 	useEffect(() => {
 		return () => {
@@ -269,13 +284,30 @@ export function GameScreen({
 		return () => window.clearTimeout(timer);
 	}, [briefingStage]);
 
-	const briefingCopy = team ? BRIEFING_BY_TEAM[team] : null;
+	useEffect(() => {
+		if (roundEndStage !== "pre-enter") {
+			return;
+		}
+		let second: number | null = null;
+		const first = window.requestAnimationFrame(() => {
+			second = window.requestAnimationFrame(() => {
+				setRoundEndStage("center");
+			});
+		});
+		return () => {
+			window.cancelAnimationFrame(first);
+			if (second !== null) {
+				window.cancelAnimationFrame(second);
+			}
+		};
+	}, [roundEndStage]);
+
 	const playerName =
 		typeof localPlayer?.name === "string" && localPlayer.name.trim().length > 0
 			? localPlayer.name.trim()
 			: "Agent";
-	const teamLabel = team ? BRIEFING_BY_TEAM[team].teamLabel : "UNASSIGNED";
-	const teamColor = team ? BRIEFING_BY_TEAM[team].color : "#a8b6c8";
+	const teamLabel = team === "enforcers" ? "ENFORCERS" : team === "shredders" ? "SHREDDERS" : "UNASSIGNED";
+	const teamColor = team === "enforcers" ? "#0015BC" : team === "shredders" ? "#FF0000" : "#a8b6c8";
 	const trapSlotsByIndex = new Map<number, any>(
 		trapSlots.map((slot) => [Number(slot?.slotIndex ?? -1), slot]),
 	);
@@ -289,14 +321,6 @@ export function GameScreen({
 			}
 		);
 	});
-
-	const briefingTransform =
-		briefingStage === "pre-enter"
-			? "translate(-50%, -50%) translateX(120vw)"
-			: briefingStage === "exit"
-				? "translate(-50%, -50%) translateX(-132vw)"
-				: "translate(-50%, -50%) translateX(0)";
-
 	return (
 		<div style={{ width: "100%", height: "100%", minHeight: "100vh" }}>
 			{isDevMode ? (
@@ -440,9 +464,9 @@ export function GameScreen({
 					<div
 						style={{
 							display: "flex",
-							flexDirection: "column",
-							alignItems: "flex-start",
-							gap: touchControlsEnabled ? 2 : 0,
+							flexDirection: touchControlsEnabled ? "column" : "row",
+							alignItems: touchControlsEnabled ? "flex-start" : "center",
+							gap: touchControlsEnabled ? 2 : 6,
 							color: "#ffffff",
 							fontSize: "1.45rem",
 							lineHeight: 1,
@@ -564,6 +588,9 @@ export function GameScreen({
 				touchInputRef={touchMoveRef}
 				touchInteractPressed={touchInteractPressed}
 				touchTrapPressed={touchTrapPressed}
+				onEscapeOutroComplete={() => {
+					setEscapeOutroDone(true);
+				}}
 			/>
 			{touchControlsEnabled ? (
 				<div
@@ -673,65 +700,15 @@ export function GameScreen({
 					</div>
 				</div>
 			) : null}
-			{briefingStage !== "hidden" && briefingCopy ? (
-				<div
-					style={{
-						position: "fixed",
-						inset: 0,
-						pointerEvents: "none",
-						zIndex: 8,
-						background:
-							"radial-gradient(circle at center, rgba(5, 9, 16, 0.22) 0%, rgba(3, 6, 11, 0.56) 62%, rgba(2, 4, 8, 0.7) 100%)",
-					}}
-				>
-					<div
-						style={{
-							position: "absolute",
-							left: "50%",
-							top: "50%",
-							transform: briefingTransform,
-							transition: "transform 720ms cubic-bezier(0.2, 0.9, 0.2, 1)",
-							width: "min(90vw, 820px)",
-							padding: "2rem 2.2rem",
-							border: "1px solid rgba(192, 221, 255, 0.3)",
-							background:
-								"linear-gradient(160deg, rgba(6, 12, 18, 0.95) 0%, rgba(10, 18, 26, 0.95) 62%, rgba(16, 24, 34, 0.94) 100%)",
-							boxShadow: "0 22px 70px rgba(0, 0, 0, 0.62)",
-							textAlign: "center",
-							letterSpacing: "0.02em",
-						}}
-					>
-						<div
-							style={{
-								fontFamily: "'Bebas Neue', Impact, Haettenschweiler, 'Arial Narrow Bold', sans-serif",
-								fontSize: "clamp(2.2rem, 8vw, 4.6rem)",
-								lineHeight: 0.9,
-								textTransform: "uppercase",
-								textShadow: "0 0 24px rgba(160, 220, 255, 0.42)",
-							}}
-						>
-							<div style={{ opacity: 0.8, fontSize: "0.5em", marginBottom: "0.45rem", letterSpacing: "0.22em" }}>
-								Your Team
-							</div>
-							<div>{briefingCopy.teamLabel}</div>
-						</div>
-						<p
-							style={{
-								margin: "1.1rem auto 0",
-								maxWidth: "40rem",
-								fontSize: "clamp(1rem, 2.35vw, 1.32rem)",
-								lineHeight: 1.45,
-								opacity: 0.95,
-							}}
-						>
-							{briefingCopy.mission}
-						</p>
-						<div style={{ marginTop: "1rem", opacity: 0.74, fontSize: "0.86rem", textTransform: "uppercase", letterSpacing: "0.11em" }}>
-							Press any key or tap to continue
-						</div>
-					</div>
-				</div>
-			) : null}
+			<BriefingPanel stage={briefingStage} team={team} />
+			<RoundEndPanel
+				stage={roundEndStage}
+				summary={roundEndSummary}
+				gameCode={gameCode}
+				roomId={room?.roomId}
+				onPlayAnotherRound={onPlayAnotherRound}
+				onBackToStartScreen={onBackToStartScreen}
+			/>
 			<Ticker />
 		</div>
 	);

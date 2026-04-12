@@ -59,6 +59,16 @@ export {
 	type EscapeLadderPlacement,
 } from "./escapeLadder.js";
 export {
+	generateRoomDecorPlacements,
+	buildTableCollisionWalls,
+	type RoomDecorPlacements,
+	type TablePlacement,
+	type PaperPlacement,
+	type PictureFramePlacement,
+	type FrameWallSide,
+	type TableRotationQuarter,
+} from "./roomDecor.js";
+export {
 	canonicalEdgeKey,
 	generateMapLayout,
 	layoutOccupancy,

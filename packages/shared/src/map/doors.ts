@@ -5,6 +5,7 @@ import {
 import { CELL_SIZE } from "./constants.js";
 import { computeDecorIds } from "./decor.js";
 import { canonicalEdgeKey, layoutRoomMap, type MapLayout } from "./generateLayout.js";
+import { VAULT_TILE_IX, VAULT_TILE_IZ } from "./vaults.js";
 
 export type DoorVariant = "double" | "single";
 export type DoorFacing = "x" | "z";
@@ -43,6 +44,19 @@ function hashString(value: string): number {
 	return hash >>> 0;
 }
 
+function isVaultBackWallDoorEdge(ix1: number, iz1: number, ix2: number, iz2: number): boolean {
+	// Keep the north wall line behind the vault clear at the vault X.
+	if (ix1 !== VAULT_TILE_IX || ix2 !== VAULT_TILE_IX) {
+		return false;
+	}
+	return (
+		(iz1 === VAULT_TILE_IZ && iz2 === VAULT_TILE_IZ - 1) ||
+		(iz2 === VAULT_TILE_IZ && iz1 === VAULT_TILE_IZ - 1) ||
+		(iz1 === VAULT_TILE_IZ - 1 && iz2 === VAULT_TILE_IZ - 2) ||
+		(iz2 === VAULT_TILE_IZ - 1 && iz1 === VAULT_TILE_IZ - 2)
+	);
+}
+
 export function generateDoorPlacements(layout: MapLayout): DoorPlacement[] {
 	const cells = new Map(layout.cells.map((cell) => [`${cell.ix},${cell.iz}`, cell]));
 	const roomMap = layoutRoomMap(layout);
@@ -56,6 +70,9 @@ export function generateDoorPlacements(layout: MapLayout): DoorPlacement[] {
 		}
 		const [ix1, iz1] = partA.split(",").map(Number);
 		const [ix2, iz2] = partB.split(",").map(Number);
+		if (isVaultBackWallDoorEdge(ix1, iz1, ix2, iz2)) {
+			continue;
+		}
 		const cell1 = cells.get(`${ix1},${iz1}`);
 		const cell2 = cells.get(`${ix2},${iz2}`);
 		if (!cell1 || !cell2) {

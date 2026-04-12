@@ -6,12 +6,14 @@ import {
 	buildCollisionWalls,
 	buildFileCabinetCollisionWalls,
 	buildEscapeLadderCollisionWalls,
+	buildTableCollisionWalls,
 	buildVaultCollisionWalls,
 	CELL_SIZE,
 	ROOM_HEIGHT,
 	type GameServerMessages,
 	generateEscapeLadderPlacement,
 	generateFileCabinetPlacements,
+	generateRoomDecorPlacements,
 	generateVaultPlacement,
 	generateMapLayout,
 	layoutRoomMap,
@@ -31,6 +33,7 @@ import { SuitcaseLayer } from "./suitcases/SuitcaseLayer";
 import { VaultLayer } from "./vaults/VaultLayer";
 import { FileCabinetLayer } from "./fileCabinets/FileCabinetLayer";
 import { EscapeLadderLayer } from "./escapeLadder/EscapeLadderLayer";
+import { RoomDecorLayer } from "./roomDecor/RoomDecorLayer";
 import { CelRenderLayer } from "./celRender";
 import { TrapLayer } from "./traps/TrapLayer";
 import { DebugOrbitCamera, DisableCanvasContextMenu, ThirdPersonCamera, ThrottledInvalidator } from "./scene/CameraControllers";
@@ -270,6 +273,7 @@ function SceneContent({
 	touchInputRef,
 	touchInteractPressed,
 	touchTrapPressed,
+	onEscapeOutroComplete,
 }: {
 	onAreaChange?: (label: string) => void;
 	revealAll: boolean;
@@ -282,6 +286,7 @@ function SceneContent({
 	touchInputRef?: MutableRefObject<{ x: number; z: number }>;
 	touchInteractPressed?: boolean;
 	touchTrapPressed?: boolean;
+	onEscapeOutroComplete?: () => void;
 }) {
 	const { room } = useRoom();
 	const players = useRoomState((s) => s.players);
@@ -314,6 +319,7 @@ function SceneContent({
 	const [coveredActorSessionId, setCoveredActorSessionId] = useState<string | null>(null);
 	const [extractedActorSessionId, setExtractedActorSessionId] = useState<string | null>(null);
 	const [heliTarget, setHeliTarget] = useState<{ x: number; z: number } | null>(null);
+	const escapeOutroCompletedRef = useRef(false);
 	const explosionIdRef = useRef(0);
 	const previousAliveByIdRef = useRef(new Map<string, boolean>());
 	const previousLocalAliveRef = useRef<boolean>(true);
@@ -468,6 +474,7 @@ function SceneContent({
 			});
 			escapeCameraTargetRef.current.set(message.cameraX, 0.5, message.cameraZ);
 			if (message.stage === "complete") {
+				escapeOutroCompletedRef.current = false;
 				setHeliActorSessionId(message.actorSessionId);
 				setHeliRunId((current) => current + 1);
 				setHeliActive(true);
@@ -478,6 +485,7 @@ function SceneContent({
 				setCoveredActorSessionId(null);
 				setExtractedActorSessionId(null);
 				setHeliTarget(null);
+				escapeOutroCompletedRef.current = false;
 			}
 		});
 	}, [room]);
@@ -507,6 +515,10 @@ function SceneContent({
 		return generateMapLayout(mapSeed ?? 0, mapMaxDistance ?? 12);
 	}, [mapSeed, mapMaxDistance]);
 	const staticWalls = useMemo(() => buildCollisionWalls(layout), [layout]);
+	const tableWalls = useMemo(
+		() => buildTableCollisionWalls(generateRoomDecorPlacements(layout).tables),
+		[layout],
+	);
 	const fileCabinetWalls = useMemo(
 		() => buildFileCabinetCollisionWalls(generateFileCabinetPlacements(layout)),
 		[layout],
@@ -541,8 +553,8 @@ function SceneContent({
 		).concat(vaultWalls);
 	}, [interactables, vaults]);
 	const walls = useMemo(
-		() => [...staticWalls, ...dynamicWalls, ...fileCabinetWalls, ...escapeLadderWalls],
-		[dynamicWalls, escapeLadderWalls, fileCabinetWalls, staticWalls],
+		() => [...staticWalls, ...dynamicWalls, ...fileCabinetWalls, ...escapeLadderWalls, ...tableWalls],
+		[dynamicWalls, escapeLadderWalls, fileCabinetWalls, staticWalls, tableWalls],
 	);
 	const areaInfo = useMemo(() => buildAreaInfo(layout), [layout]);
 	const spectatorAreaOrder = useMemo(() => {
@@ -884,6 +896,16 @@ function SceneContent({
 				forceAllOutlined={spectatorGlobalActive}
 				outlinesEnabled={outlinesEnabled}
 			/>
+			<RoomDecorLayer
+				fogByCell={fogByCell}
+				revealAll={revealAllNow}
+				forceAllOutlined={spectatorGlobalActive}
+				mapSeed={mapSeed ?? 0}
+				mapMaxDistance={mapMaxDistance ?? 12}
+				areaInfo={areaInfo}
+				currentArea={currentArea}
+				outlinesEnabled={outlinesEnabled}
+			/>
 			<RooftopLayer mapSeed={mapSeed ?? 0} mapMaxDistance={mapMaxDistance ?? 12} visible={!!roofVisible} />
 			<HelicopterLayer
 				active={heliActive}
@@ -899,6 +921,10 @@ function SceneContent({
 				onFinished={() => {
 					setHeliActive(false);
 					setCoveredActorSessionId(null);
+					if (!escapeOutroCompletedRef.current) {
+						escapeOutroCompletedRef.current = true;
+						onEscapeOutroComplete?.();
+					}
 				}}
 			/>
 			<DoorLayer fogByCell={fogByCell} revealAll={revealAllNow} audioEnabled={audioEnabled} />
@@ -967,14 +993,16 @@ function SceneContent({
 				}
 				return <ComicExplosionEffect key={fx.id} x={fx.x} z={fx.z} spawnMs={fx.spawnMs} />;
 			})}
-			<DeathGhostLayer
-				players={list}
-				deathStartedAtMsById={deathStartedAtMsById}
-				localSessionId={localSessionId}
-				localCameraAttach={localGhostFollowCamera}
-				cameraAnchorRef={spectatorTargetRef}
-				localDeathStartedMs={localDeathStartedMs}
-			/>
+			{!escapeSequence?.active ? (
+				<DeathGhostLayer
+					players={list}
+					deathStartedAtMsById={deathStartedAtMsById}
+					localSessionId={localSessionId}
+					localCameraAttach={localGhostFollowCamera}
+					cameraAnchorRef={spectatorTargetRef}
+					localDeathStartedMs={localDeathStartedMs}
+				/>
+			) : null}
 			{list.map((p) =>
 				p.id === coveredActorSessionId || p.id === extractedActorSessionId ? null :
 				p.isLocal ? (
@@ -1000,7 +1028,11 @@ function SceneContent({
 						target={{ x: p.x, z: p.z }}
 						smoothing={18}
 						nameLabel={p.name}
-						showNameLabel
+						showNameLabel={
+							!roofVisible ||
+							p.interactionStyle === "escape_roof_step" ||
+							p.interactionStyle === "escape_complete"
+						}
 						carriedKeycardColor={p.carriedKeycardColor}
 						carriedSuitcase={p.carriedSuitcase}
 						isInteracting={p.isInteracting}
@@ -1032,6 +1064,7 @@ export function GameScene({
 	touchInputRef,
 	touchInteractPressed = false,
 	touchTrapPressed = false,
+	onEscapeOutroComplete,
 }: {
 	onAreaChange?: (label: string) => void;
 	revealAll: boolean;
@@ -1048,6 +1081,7 @@ export function GameScene({
 	touchInputRef?: MutableRefObject<{ x: number; z: number }>;
 	touchInteractPressed?: boolean;
 	touchTrapPressed?: boolean;
+	onEscapeOutroComplete?: () => void;
 }) {
 	return (
 		<Canvas
@@ -1074,6 +1108,7 @@ export function GameScene({
 				touchInputRef={touchInputRef}
 				touchInteractPressed={touchInteractPressed}
 				touchTrapPressed={touchTrapPressed}
+				onEscapeOutroComplete={onEscapeOutroComplete}
 			/>
 		</Canvas>
 	);

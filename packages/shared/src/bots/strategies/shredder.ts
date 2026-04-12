@@ -96,6 +96,21 @@ function supporterBehavior(context: BotDecisionContext, carrierSessionId: string
 
 	if (role === "ladder_check") {
 		if (ladder && ladderKnown) {
+			const carrierAtLadder =
+				Math.hypot(carrier.x - ladder.x, carrier.z - ladder.z) <= ladder.range + 0.55 ||
+				carrier.interactionKind === "escape_ladder";
+			if (carrierAtLadder) {
+				const side = deterministicNoise(`${self.sessionId}:ladder_yield:${ladder.id}`) < 0.5 ? -1 : 1;
+				return {
+					...moveToTarget(
+						context,
+						{ x: ladder.x + side * 1.1, z: ladder.z + 0.75 },
+						false,
+					),
+					stateKey: "shredder:support_ladder_yield",
+					targetLabel: `carrier:${carrier.sessionId}`,
+				};
+			}
 			if (inActionRange(context, ladder)) {
 				return {
 					stateKey: "shredder:support_ladder_check",
@@ -172,14 +187,18 @@ function supporterBehavior(context: BotDecisionContext, carrierSessionId: string
 }
 
 function carrierBehavior(context: BotDecisionContext) {
+	const self = context.snapshot.self;
 	const ladder = primaryEscapeLadder(context);
-	if (!ladder) {
+	if (!self || !ladder) {
 		return {
 			...decideSweepMove(context),
 			stateKey: "shredder:carrier_sweep",
 		};
 	}
-	if (inActionRange(context, ladder)) {
+	const sameRoom = self.roomId !== null && ladder.roomId !== null && self.roomId === ladder.roomId;
+	const ladderDist = Math.hypot(self.x - ladder.x, self.z - ladder.z);
+	// Match server hold candidate gating: strict ladder range and same-room context.
+	if (sameRoom && ladderDist <= ladder.range) {
 		return {
 			stateKey: "shredder:carrier_escape_interact",
 			moveVector: null,
