@@ -14,6 +14,7 @@ import { GameScreen } from "./screens/GameScreen";
 type JoinParams = {
 	operatorName: string;
 	gameCode: string;
+	preferredColor?: string;
 };
 
 function normalizeGameCode(value: string): string {
@@ -230,6 +231,7 @@ export default function App() {
 	const [joinParams, setJoinParams] = useState<JoinParams>({
 		operatorName: "",
 		gameCode: "",
+		preferredColor: undefined,
 	});
 	const mapMaxDistance = useMemo(
 		() => Number(import.meta.env.VITE_MAP_MAX_DISTANCE ?? 12),
@@ -245,6 +247,7 @@ export default function App() {
 						mapMaxDistance,
 						operatorName: joinParams.operatorName,
 						gameCode,
+						preferredColor: joinParams.preferredColor,
 					};
 					try {
 						room = await colyseusClient.join("game_room", options, GameState);
@@ -260,6 +263,7 @@ export default function App() {
 						{
 							mapMaxDistance,
 							operatorName: joinParams.operatorName,
+							preferredColor: joinParams.preferredColor,
 						},
 						GameState,
 					);
@@ -270,7 +274,7 @@ export default function App() {
 				throw new Error(buildJoinErrorMessage(error, gameCode));
 			}
 		},
-		[joinParams.gameCode, joinParams.operatorName, mapMaxDistance],
+		[joinParams.gameCode, joinParams.operatorName, joinParams.preferredColor, mapMaxDistance],
 	);
 
 	return (
@@ -293,6 +297,7 @@ export default function App() {
 							setJoinParams((current) => ({
 								operatorName: current.operatorName,
 								gameCode,
+								preferredColor: current.preferredColor,
 							}));
 							setConnectionAttempt((current) => current + 1);
 							setJoinRequested(true);

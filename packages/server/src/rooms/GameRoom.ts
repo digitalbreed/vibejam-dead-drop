@@ -220,7 +220,33 @@ type JoinOptions = {
 	mapMaxDistance?: number;
 	operatorName?: string;
 	gameCode?: string;
+	preferredColor?: string;
 };
+
+function parsePreferredColor(raw: unknown): number | null {
+	if (typeof raw !== "string") {
+		return null;
+	}
+	const normalized = raw.trim().toLowerCase();
+	if (!normalized) {
+		return null;
+	}
+	if (normalized === "red") {
+		return 0xff0000;
+	}
+	if (normalized === "green") {
+		return 0x00ff00;
+	}
+	if (normalized === "yellow") {
+		return 0xffff00;
+	}
+	const hex = normalized.replace(/^#/, "");
+	if (!/^[0-9a-f]{3}$/.test(hex) && !/^[0-9a-f]{6}$/.test(hex)) {
+		return null;
+	}
+	const expanded = hex.length === 3 ? hex.split("").map((part) => `${part}${part}`).join("") : hex;
+	return Number.parseInt(expanded, 16);
+}
 
 function normalizeGameCode(raw: unknown): string {
 	if (typeof raw !== "string") {
@@ -442,7 +468,9 @@ export class GameRoom extends Room {
 		for (const existing of this.state.players.values()) {
 			existingColors.add(existing.color);
 		}
-		player.color = pickUniqueColor(existingColors, client.sessionId);
+		const preferredColor = parsePreferredColor(options.preferredColor);
+		player.color =
+			preferredColor !== null ? preferredColor : pickUniqueColor(existingColors, client.sessionId);
 		player.isAlive = true;
 		this.state.players.set(client.sessionId, player);
 		this.initializeTrapPoints(client.sessionId);

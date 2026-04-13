@@ -1,9 +1,11 @@
 import { useEffect, useMemo, useRef, useState, type CSSProperties } from "react";
 import { useBackgroundMusic } from "../audio/BackgroundMusicContext";
 import { playUiClickSound } from "../audio/playUiClickSound";
+import { usePortal } from "../portal/PortalContext";
+import { PortalLinks } from "./components/PortalLinks";
 
 type TitleScreenProps = {
-	onJoin: (params: { operatorName: string; gameCode: string }) => void;
+	onJoin: (params: { operatorName: string; gameCode: string; preferredColor?: string }) => void;
 };
 
 type ShredParticle = {
@@ -103,6 +105,7 @@ function playShredderSound(volume = 0.18): void {
 }
 
 export function TitleScreen({ onJoin }: TitleScreenProps) {
+	const { incomingUsername, portalColor } = usePortal();
 	const titleMusicTrack = useMemo(
 		() => ({
 			src: "/mod01.ogg",
@@ -165,6 +168,17 @@ export function TitleScreen({ onJoin }: TitleScreenProps) {
 			setOperatorName(saved.trim());
 		}
 	}, []);
+
+	useEffect(() => {
+		if (typeof window === "undefined") {
+			return;
+		}
+		if (!incomingUsername) {
+			return;
+		}
+		setOperatorName(incomingUsername);
+		window.localStorage.setItem(OPERATOR_NAME_STORAGE_KEY, incomingUsername);
+	}, [incomingUsername]);
 
 	useEffect(() => {
 		if (typeof window === "undefined") {
@@ -388,6 +402,7 @@ export function TitleScreen({ onJoin }: TitleScreenProps) {
 							onJoin({
 								operatorName: trimmedOperatorName,
 								gameCode: gameCode.trim(),
+								preferredColor: portalColor,
 							});
 						}
 					}
@@ -397,6 +412,7 @@ export function TitleScreen({ onJoin }: TitleScreenProps) {
 				</div>
 				</div>
 			</div>
+			<PortalLinks usernameOverride={operatorName} colorOverride={portalColor} />
 		</div>
 	);
 }
